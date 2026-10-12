@@ -13,18 +13,24 @@ only crate that touches gtk4, sourceview5, or vir-gtk).
 
 ## Hard rules
 
-- **Clean-room.** The only TaskPaper reference is the public User's
-  Guide (guide.taskpaper.com; the live site blocks datacenter
-  fetches, so use Wayback Machine snapshots and cite page plus
-  snapshot date). Never read TaskPaper application source, including
-  the open-sourced 2014 iOS repo at github.com/jessegrosjean/TaskPaper.
-  Never copy TaskPaper artwork, strings, or UI copy. Docket is never
-  branded with the TaskPaper name; the README non-affiliation note
-  stays.
-- **The file is canonical.** Parsing and re-serializing must
-  round-trip a document byte-for-byte. Any feature that writes
-  derived state (fold state, computed dates, counts) into the
-  document is a spec violation.
+- **Independent implementation; facts-only references.** The
+  normative reference is the public User's Guide (guide.taskpaper.com;
+  the live site blocks datacenter fetches, so use Wayback Machine
+  snapshots and cite page plus snapshot date). The workspace keeps
+  reference clones, cataloged in ~/.gitrepos/CLAUDE.md: the format
+  author's MIT-licensed libraries (birch-outline, BirchOutline,
+  aequery) and other TaskPaper tools (restricted-source or
+  unlicensed). These may be mined for behavioral facts: rules,
+  defaults, edge cases, feature scope. Never copy, translate, or
+  structurally mirror their code. Never copy artwork, strings, or
+  UI copy. No file paths or excerpts from reference clones ever
+  enter this repository. Docket is never branded with the TaskPaper
+  name; the README non-affiliation note stays.
+- **The file is canonical.** Parsing and re-serializing is lossless
+  and idempotent. Any feature that writes derived state (fold
+  state, computed dates, counts) into the document is a spec
+  violation. View state lives in the ~/.local/state/docket/ sidecar,
+  never the file.
 - **docket-core stays GUI-free.** The engine tests headless; the app
   crate is the only GTK consumer.
 - No third-party dependencies in docket-core without asking. The
@@ -44,7 +50,9 @@ System packages for a local build: libgtk-4-dev, libgtksourceview-5-dev.
 
 docket-core carries the test weight: unit tests per module plus
 file-driven engine tests where the fixture `.taskpaper` input, the
-query, and the expected results all live as data. The app crate
+query, and the expected results all live as data. The fixture
+corpus includes files written by other editors (space-indented,
+spaced `@done (date)`, emails and URLs in prose). The app crate
 gets smoke tests only; UI verification is manual on the desktop.
 
 ## Docs

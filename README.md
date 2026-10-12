@@ -32,10 +32,11 @@ vary by distribution).
 
 Docket reads and writes `.taskpaper` documents and implements the
 format, search language, and date system documented in the public
-[TaskPaper User's Guide](https://guide.taskpaper.com/). Docket is an
-independent clean-room implementation: it is not affiliated with,
-endorsed by, or derived from Hog Bay Software's TaskPaper, whose
-name and application remain theirs.
+[TaskPaper User's Guide](https://guide.taskpaper.com/), with
+behavior cross-checked against the format author's MIT-licensed
+reference libraries. Docket is an independent implementation: it is
+not affiliated with or endorsed by Hog Bay Software, whose TaskPaper
+application and name remain theirs.
 
 ## License
 
