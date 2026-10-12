@@ -60,6 +60,13 @@ gets smoke tests only; UI verification is manual on the desktop.
 spec.md is the contract; roadmap.md sequences it; patchnotes.md logs
 releases, newest first, `## vX.Y.Z` headings. VERSION at the repo
 root is the single version source and the workspace Cargo.toml must
-match it (a version-sync test pins the pair). Release tags follow
-the global git-habit rules: annotated, v-prefixed, full patchnotes
-entry as the message.
+match it (a version-sync test pins the pair).
+
+## Release flow
+
+Commit and push verified work (the standing push grant in the global
+file; force-pushes still need approval), wait for CI to go green, then
+tag: annotated `vX.Y.Z` at the release commit, full patchnotes entry as
+the message (`--cleanup=verbatim`; the global git-habit rules carry the
+complete procedure). Version carriers: `VERSION` and the workspace
+`Cargo.toml`, pinned by the version-sync test.
