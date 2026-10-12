@@ -1,0 +1,11 @@
+[package]
+name = "docket-core"
+description = "TaskPaper-format engine for Docket: document parser, query language, and dates. No GUI dependencies."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+# Deliberately empty at Phase 0. The engine stays dependency-free so
+# it tests headless; the app crate owns the whole GTK stack.

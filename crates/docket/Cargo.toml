@@ -1,0 +1,21 @@
+[package]
+name = "docket"
+description = "Plain-text task lists for Linux, faithful to the TaskPaper format (GTK4)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "docket"
+path = "src/main.rs"
+
+[dependencies]
+docket-core = { path = "../docket-core" }
+gtk4 = { version = "0.11", features = ["v4_10"] }
+# no version-gated features: nothing here needs past the base API,
+# and CI's Ubuntu runner ships GtkSourceView 5.12
+sourceview5 = "0.11"
+# the shared VirInvictus styling layer; wired into the window in
+# Phase 5 (app shell, Kanagawa Dragon stylesheet)
+vir-gtk = { git = "https://github.com/VirInvictus/vir-gtk.git", branch = "main" }
