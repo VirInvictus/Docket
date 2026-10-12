@@ -37,6 +37,20 @@ only crate that touches gtk4, sourceview5, or vir-gtk).
   app crate's stack (gtk4, sourceview5, vir-gtk) is already
   approved.
 
+## References while building
+
+The workspace keeps four reference clones with phase-scoped
+retention (cataloged in ~/.gitrepos/CLAUDE.md): birch-outline
+(MIT; through Phase 4, the engine oracle and test-case source),
+taskpaper-mode (through Phase 3, the community query/date
+cross-check), the TaskPaper 3 app source (through Phase 7,
+facts-only), and vscode-todo-plus (until the post-1.0
+PlainTasks-compat lane is decided). A phase gate sweeps the clones
+whose phase closed. The differential-testing oracle is the author's
+MIT-licensed library bundle at
+~/.local/share/docket-oracle/birchoutline.js; it is never vendored
+into this repository.
+
 ## Commands
 
 - Build: `cargo build`
