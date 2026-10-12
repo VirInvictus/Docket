@@ -1,0 +1,14 @@
+Email test: contact jesse@hogbay.com anytime
+URL test: see https://example.com/@at for docs
+Project: @done
+- foo:
+foo:
+Not tags: x@done trailing@nope mid@text here
+Spaced done: task @done (2026-10-12)
+Escaped: @a(b\) c)
+Raw paren fails: @a(b(c) still text
+Lone at: @
+Digit tag: @2fast item
+Dup tags: item @x(one) @x(two)
+Empty parens: note @empty()
+Reserved: uses @id and @text inline

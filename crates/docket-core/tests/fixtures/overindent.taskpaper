@@ -1,0 +1,5 @@
+A:
+	- child
+			- deep (three tabs under a depth-1 parent)
+	- sibling
+B:

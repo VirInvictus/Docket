@@ -1,16 +1,20 @@
 //! Docket's plain-text engine: the TaskPaper-format document parser,
 //! the search language, and the date system. Spec.md is the contract;
 //! this crate implements it headless, with no GUI dependencies.
+//!
+//! The format engine (spec "Document model") lives in `tags` (tag
+//! scanning), `classify` (content and item kinds), `text` (load,
+//! serialize, and the one-time normalizations), and `document` (the
+//! item list and nearest-shallower parenting).
 
-/// The three kinds of items a `.taskpaper` line can be. A blank line
-/// is a group separator, not an item. Seeded from the spec's document
-/// model; Phase 1 grows the full item tree around it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ItemKind {
-    Project,
-    Task,
-    Note,
-}
+pub mod classify;
+pub mod document;
+pub mod item;
+pub mod tags;
+pub mod text;
+
+pub use document::Document;
+pub use item::{Item, ItemKind};
 
 #[cfg(test)]
 mod tests {

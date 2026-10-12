@@ -16,22 +16,22 @@ re-ordered or dropped. The spec outranks this file.
 
 The document contract, complete and pinned by tests.
 
-- [ ] Item tree: one item per line; classification exactly per spec
+- [x] Item tree: one item per line; classification exactly per spec
       (project colon as the final content character after the
       trailing tag run; task markers `- `, `+ `, `* ` recognized on
       read, `- ` written; notes; blank-line separators)
-- [ ] Indentation model: tab depth, nearest-shallower parenting,
+- [x] Indentation model: tab depth, nearest-shallower parenting,
       over-indent preservation, space-indent normalization
       (smallest common leading-space run), line-ending
       normalization, no trailing newline
-- [ ] Tag engine: boundary rules (line start or whitespace before,
+- [x] Tag engine: boundary rules (line start or whitespace before,
       whitespace or end of line after), name charset, parenthesized
       values with `\(` / `\)` escapes, comma lists, empty-string
       vs absent values, duplicate names first-wins, reserved
       `@id` / `@text` / `@type`
-- [ ] Lossless writer: parse/serialize idempotence tests over the
+- [x] Lossless writer: parse/serialize idempotence tests over the
       whole fixture corpus
-- [ ] Fixture corpus: real-world-shaped `.taskpaper` files covering
+- [x] Fixture corpus: real-world-shaped `.taskpaper` files covering
       the ecosystem's known quirks (space-indented files, spaced
       `@done (date)` variants, email addresses and URLs in prose,
       over-indents, mixed line endings, output of other editors)

@@ -1,0 +1,5 @@
+Root:
+    - one
+        - nested
+    Note child
+Loose note

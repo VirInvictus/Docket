@@ -80,9 +80,10 @@ author's MIT-licensed serialization:
   followed by a space). Docket recognizes all three on read and
   writes only `- `.
 - **Note**: any other line with content.
-- **Blank lines** are group separators; they are not items. On
-  load, a blank line adopts the indentation of the next non-empty
-  line.
+- **Blank lines** load as empty note items, so they render as the
+  group separators they look like. On load a blank line adopts the
+  indentation of the next non-empty line, and trailing blanks sit
+  at top level.
 
 Leading whitespace nests an item under the nearest preceding
 shallower item. The model depth unit is the tab. Space-indented
