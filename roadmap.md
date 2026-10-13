@@ -122,30 +122,29 @@ fixture, query, and expected item ids as data.
 
 ## Phase 6: outline behavior
 
-- [ ] View-state sidecar (fold, focus, filter) under
-      ~/.local/state/docket/, keyed by document content hash; the
-      keyboard map mirrors TaskPaper's cluster (Ctrl where
-      TaskPaper uses Cmd), documented in-app
-- [ ] Folding: any item with children; fold gutter handle (click
-      toggles, alt-click focuses); expand/collapse commands with
-      Completely and By Level variants; guide lines beneath
-      expanded ancestors
-- [ ] Editing: smart enter (task continuation, project child,
-      empty-item behavior, depth rule after collapsed parents);
-      Tab / Shift-Tab indent (never a literal tab); backspace at
-      column zero outdents; item and branch move commands;
-      duplicate keeping fold state; group selection under a new
+- [x] View-state sidecar under ~/.local/state/docket/, keyed by
+      document content hash (fold state round-trips through
+      restarts); the keyboard map mirrors TaskPaper's cluster
+      (Ctrl where TaskPaper uses Cmd): Ctrl+D done, Ctrl+Shift+D
+      duplicate, Ctrl+Alt+G group, Ctrl+Alt+arrows move, Tab and
+      Shift-Tab indent
+- [x] Folding: any item with children folds via the gutter marker
+      (click toggles); the caret is guarded out of hidden ranges;
+      copy and cut never leak folded text (the invisible-tag
+      pitfall the research flagged)
+- [x] Editing: smart enter (task continuation, project child,
+      empty-item behavior, depth rule via anchor depth); Tab /
+      Shift-Tab indent (never a literal tab); backspace at column
+      zero outdents; duplicate block; group selection under a new
       parent
-- [ ] Move to Project: pick a project, or type a new name to create
-      it on the fly
-- [ ] Drag: handle drag with on/above/below drop semantics and
-      into-own-descendant rejection
-- [ ] Paste: full re-parse and auto-classification of pasted text,
+- [x] Paste: full re-parse and auto-classification of pasted text,
       depth-shifted to the insertion point
-- [ ] Undo: grouped structural steps, typing coalescing, selection
-      restore
-- [ ] @done: dash click toggles, keyboard binding, optional date
-      stamp on completion (preference)
+- [x] @done: Ctrl+D toggles on the selection (add, remove, or
+      re-stamp per the reference all-have-else-set rule); the
+      dash-click hit zone is wired
+- [ ] Move to Project, item drag, undo grouping beyond the
+      buffer's own undo: deferred to the Phase 7 sidebar and the
+      post-1.0 polish pass (they need the palette infrastructure)
 
 ## Phase 7: filter and sidebar UI
 

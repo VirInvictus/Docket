@@ -2,6 +2,16 @@
 
 Newest first.
 
+## Unreleased
+
+- Outline behavior: folding (gutter markers, click to toggle,
+  invisible-tag hiding with copy/cut leak protection and caret
+  guards, fold state persisted to a content-hash-keyed sidecar),
+  smart enter, Tab/Shift-Tab indent, backspace-outdent, duplicate,
+  group, branch moves, paste depth-shifting, and Ctrl+D done
+  toggling - all engine operations headless-tested, all verified
+  live on the desktop.
+
 ## v0.2.0 (2026-10-12)
 
 - The format engine: the complete document model with the

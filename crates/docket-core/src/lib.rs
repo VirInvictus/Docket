@@ -14,6 +14,7 @@
 pub mod classify;
 pub mod dates;
 pub mod document;
+pub mod edit;
 pub mod item;
 pub mod query;
 pub mod query_eval;
