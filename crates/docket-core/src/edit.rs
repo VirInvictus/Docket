@@ -428,6 +428,82 @@ pub fn prepare_paste(clipboard: &str, target_depth: i64) -> String {
     shift_lines(trimmed, 0, count - 1, delta, 0).unwrap_or_else(|| trimmed.to_string())
 }
 
+/// Archive Done: find or create the `Archive:` project, collect the
+/// topmost done items (done items with done ancestors ride along
+/// inside their topmost ancestor), and move their whole subtrees to
+/// the top of the archive project, structure preserved. Returns the
+/// new text and the archive project's line index.
+pub fn archive_done(text: &str) -> Option<(String, usize)> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    let has_done = |l: &str| crate::tags::scan(l).iter().any(|t| t.name == "done");
+    let depth_of = |l: &str| l.chars().take_while(|&c| c == '\t').count();
+
+    // Topmost done items: done items whose nearest shallower line is
+    // not itself done (a done child rides along inside its parent).
+    let mut moved: Vec<usize> = Vec::new();
+    for i in 0..lines.len() {
+        if !has_done(lines[i]) {
+            continue;
+        }
+        let nearest_shallower = (0..i)
+            .rev()
+            .find(|&k| depth_of(lines[k]) < depth_of(lines[i]));
+        if nearest_shallower.is_none_or(|p| !has_done(lines[p])) {
+            moved.push(i);
+        }
+    }
+    if moved.is_empty() {
+        return None;
+    }
+
+    // The block: every moved item's full subtree, each line rebased
+    // so the topmost item lands at the archive's child depth.
+    let archive_line = lines
+        .iter()
+        .position(|l| l.trim_start_matches('\t').trim_end() == "Archive:");
+    let child_indent = archive_line.map(|al| depth_of(lines[al]) + 1).unwrap_or(0);
+    let mut block_lines: Vec<usize> = Vec::new();
+    let mut block: Vec<String> = Vec::new();
+    for &i in &moved {
+        let base = depth_of(lines[i]);
+        let end = subtree_end(text, i);
+        for (j, line) in lines.iter().enumerate().skip(i).take(end - i + 1) {
+            block_lines.push(j);
+            let d = depth_of(line);
+            let indent = child_indent + d - base;
+            block.push(format!(
+                "{}{}",
+                "\t".repeat(indent),
+                line.trim_start_matches('\t')
+            ));
+        }
+    }
+    let block_set: std::collections::HashSet<usize> = block_lines.iter().copied().collect();
+
+    let mut out_lines: Vec<String> = Vec::new();
+    let mut inserted = false;
+    for (i, line) in lines.iter().enumerate() {
+        if block_set.contains(&i) {
+            continue;
+        }
+        out_lines.push(line.to_string());
+        if archive_line == Some(i) && !inserted {
+            for b in &block {
+                out_lines.push(b.clone());
+            }
+            inserted = true;
+        }
+    }
+    if !inserted {
+        out_lines.push("Archive:".to_string());
+        for b in &block {
+            out_lines.push(b.clone());
+        }
+    }
+    let sel = out_lines.iter().position(|l| l == "Archive:").unwrap_or(0);
+    Some((out_lines.join("\n"), sel))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -558,6 +634,37 @@ mod tests {
         assert_eq!(r, "Project:\n\t- three\n\t- one\n\t- two @a\nNote line\n");
         let r = move_block(DOC, 1, 2, 5).unwrap();
         assert_eq!(r, "Project:\n\t- three\nNote line\n\t- one\n\t- two @a\n");
+    }
+
+    #[test]
+    fn archive_moves_topmost_done_items_to_a_fresh_archive() {
+        let text = "P:\n\t- a @done\n\t- b\nQ:\n\t- c @done(2026-01-01)\n\t\t- child of c @done\n";
+        let (new_text, _sel) = archive_done(text).unwrap();
+        // The archive project is appended at the end; topmost done
+        // items (a, c) ride with their done children.
+        assert!(new_text.contains("Archive:\n"));
+        assert!(new_text.contains("- a @done"));
+        assert!(new_text.contains("- c @done(2026-01-01)"));
+        // The done child rode along inside its parent: not duplicated.
+        assert_eq!(new_text.matches("child of c").count(), 1);
+        // The non-done item stayed put.
+        assert!(new_text.contains("- b"));
+    }
+
+    #[test]
+    fn archive_into_an_existing_project() {
+        let text = "Archive:\n\t- old\nP:\n\t- done thing @done\n";
+        let (new_text, _) = archive_done(text).unwrap();
+        // The moved item lands at the top of the existing archive.
+        let archive_pos = new_text.find("Archive:").unwrap();
+        let done_pos = new_text.find("done thing").unwrap();
+        let old_pos = new_text.find("old").unwrap();
+        assert!(done_pos > archive_pos && done_pos < old_pos);
+    }
+
+    #[test]
+    fn archive_with_nothing_done_is_none() {
+        assert!(archive_done("P:\n\t- a\n").is_none());
     }
 
     #[test]

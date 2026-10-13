@@ -11,6 +11,14 @@ Newest first.
   group, branch moves, paste depth-shifting, and Ctrl+D done
   toggling - all engine operations headless-tested, all verified
   live on the desktop.
+- Filter and sidebar UI: a searchbar running the full query
+  language over the document (parse errors styled in place,
+  Escape clears), results showing matches plus ancestor chains
+  with dimmed markers on partially shown ancestors, a sidebar
+  with Home, nested projects, saved searches (seeded config file
+  in ~/.config/docket/), and tags with their distinct values -
+  each row click applying its filter or scope. Archive Done moves
+  topmost done items into a find-or-created Archive: project.
 
 ## v0.2.0 (2026-10-12)
 

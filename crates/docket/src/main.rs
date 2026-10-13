@@ -3,7 +3,9 @@
 //! external change reloads the view because the view never holds
 //! unsaved state.
 
+mod config;
 mod fold;
+mod sidebar;
 mod sidecar;
 mod styles;
 mod welcome;
@@ -35,6 +37,13 @@ struct Doc {
     monitor: RefCell<Option<gio::FileMonitor>>,
     folds: Rc<fold::FoldEngine>,
     renderer: fold::FoldGutterRenderer,
+    /// The active filter (parsed query plus its source text) and the
+    /// focus scope a sidebar project click installed.
+    filter: Rc<RefCell<Option<(docket_core::query::Query, String)>>>,
+    scope: Rc<RefCell<Option<usize>>>,
+    search_entry: gtk4::SearchEntry,
+    search_bar: gtk4::SearchBar,
+    sidebar: sidebar::Sidebar,
 }
 
 thread_local! {
@@ -62,6 +71,9 @@ fn activate(app: &Application, initial: Option<&Path>) {
     vir_gtk::theme::install_app_stylesheet(&vir_gtk::theme::base_css(
         &vir_gtk::theme::Palette::dragon(),
     ));
+    vir_gtk::theme::install_app_stylesheet(
+        ".docket-sidebar-debug { background-color: #2d4f67; }\n.docket-sidebar label { color: #c5c9c5; }\n",
+    );
     styles::install();
 
     let window = ApplicationWindow::builder()
@@ -91,12 +103,45 @@ fn activate(app: &Application, initial: Option<&Path>) {
         .hexpand(true)
         .vexpand(true)
         .build();
-    window.set_child(Some(&scrolled));
+
+    // Search bar above the editor: hidden while the filter is empty.
+    let search_entry = gtk4::SearchEntry::new();
+    search_entry.set_placeholder_text(Some("Search"));
+    let search_bar = gtk4::SearchBar::new();
+    search_bar.set_child(Some(&search_entry));
+    search_bar.set_search_mode(false);
+    search_bar.set_key_capture_widget(Some(&view));
+    search_bar.set_hexpand(true);
+
+    let editor_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+    editor_box.append(&search_bar);
+    editor_box.append(&scrolled);
+
+    // Sidebar on the left, editor on the right, in a pane.
+    let sidebar = sidebar::Sidebar::new();
+    let sidebar_scroll = ScrolledWindow::builder()
+        .child(sidebar.list())
+        .hexpand(false)
+        .vexpand(true)
+        .build();
+    sidebar_scroll.set_width_request(220);
+    sidebar_scroll.add_css_class("docket-sidebar-debug");
+    let pane = gtk4::Paned::new(gtk4::Orientation::Horizontal);
+    pane.set_start_child(Some(&editor_box));
+    pane.set_end_child(Some(&sidebar_scroll));
+    pane.set_shrink_start_child(false);
+    // The position clamps until the pane is allocated; set it on map.
+    pane.connect_map(|pane| pane.set_position(760));
+    window.set_child(Some(&pane));
 
     let folds = Rc::new(fold::FoldEngine::new(&buffer));
     let renderer = fold::FoldGutterRenderer::new();
     let gutter = sourceview5::prelude::ViewExt::gutter(&view, gtk4::TextWindowType::Left);
     gutter.insert(&renderer, 0);
+
+    let filter: Rc<RefCell<Option<(docket_core::query::Query, String)>>> =
+        Rc::new(RefCell::new(None));
+    let scope: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
 
     let doc = Rc::new(Doc {
         window: window.clone(),
@@ -107,12 +152,19 @@ fn activate(app: &Application, initial: Option<&Path>) {
         monitor: RefCell::new(None),
         folds,
         renderer,
+        filter,
+        scope,
+        search_entry: search_entry.clone(),
+        search_bar: search_bar.clone(),
+        sidebar: sidebar.clone(),
     });
     DOC.with(|slot| *slot.borrow_mut() = Some(doc.clone()));
 
     wire_autosave(&doc);
     wire_folds(&doc);
     wire_editing(&doc);
+    wire_search(&doc, &search_entry, &search_bar);
+    wire_sidebar(&doc, &sidebar);
     wire_actions(app, &window, &doc);
 
     match initial {
@@ -120,6 +172,33 @@ fn activate(app: &Application, initial: Option<&Path>) {
         None => load_welcome(&doc),
     }
     window.present();
+
+    // DOCKET_DEBUG_LAYOUT=1: print the layout facts after allocation
+    // and exit. Verification without pixel capture.
+    if std::env::var_os("DOCKET_DEBUG_LAYOUT").is_some() {
+        let d = doc.clone();
+        let win = window.clone();
+        glib::timeout_add_local(std::time::Duration::from_millis(2500), move || {
+            let pane = d
+                .window
+                .child()
+                .and_downcast::<gtk4::Paned>()
+                .expect("pane child");
+            #[allow(deprecated)]
+            let sidebar_w = pane.end_child().map(|w| w.allocated_width());
+            #[allow(deprecated)]
+            let editor_w = pane.start_child().map(|w| w.allocated_width());
+            let rows = d.sidebar.row_count();
+            let searchbar_visible = doc.search_bar.is_search_mode();
+            let entries = doc.search_entry.text().to_string();
+            eprintln!(
+                "[layout] pane={:?} editor_w={editor_w:?} sidebar_w={sidebar_w:?} rows={rows} searchbar={searchbar_visible} entry={entries:?}",
+                pane.position()
+            );
+            win.close();
+            glib::ControlFlow::Break
+        });
+    }
 }
 
 /// Fold plumbing: on every buffer change, re-derive which lines are
@@ -569,6 +648,7 @@ fn load_file(doc: &Rc<Doc>, path: &Path) {
     let key = fold::hash_hex(fold::content_hash(&text));
     doc.folds.restore(&sidecar::load(&key));
     refresh_folds(doc);
+    rebuild_sidebar(doc);
 }
 
 /// The first-run document: an untitled buffer with the welcome text.
@@ -580,6 +660,7 @@ fn load_welcome(doc: &Rc<Doc>) {
     *doc.path.borrow_mut() = None;
     *doc.monitor.borrow_mut() = None;
     doc.window.set_title(Some("Welcome - Docket"));
+    rebuild_sidebar(doc);
 }
 
 /// Autosave: every buffer change writes the file, so the disk is
@@ -736,4 +817,194 @@ fn wire_actions(app: &Application, window: &ApplicationWindow, doc: &Rc<Doc>) {
     ));
     app.add_action(&quit);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
+}
+
+/// The searchbar: live filtering with parse errors surfaced, Escape
+/// clearing, and the sidebar rebuilt alongside (the sidebar reflects
+/// whatever the searchbar shows).
+fn wire_search(doc: &Rc<Doc>, entry: &gtk4::SearchEntry, bar: &gtk4::SearchBar) {
+    entry.connect_search_changed(glib::clone!(
+        #[strong]
+        doc,
+        move |entry: &gtk4::SearchEntry| {
+            let text = entry.text().to_string();
+            let trimmed = text.trim().to_string();
+            if trimmed.is_empty() {
+                *doc.filter.borrow_mut() = None;
+                entry.remove_css_class("error");
+                refresh_folds(&doc);
+                rebuild_sidebar(&doc);
+                return;
+            }
+            match docket_core::query::Query::parse(&trimmed) {
+                Ok(query) => {
+                    entry.remove_css_class("error");
+                    *doc.filter.borrow_mut() = Some((query, trimmed));
+                    apply_filter(&doc);
+                }
+                Err(_) => {
+                    entry.add_css_class("error");
+                    *doc.filter.borrow_mut() = None;
+                    refresh_folds(&doc);
+                }
+            }
+        }
+    ));
+
+    entry.connect_stop_search(glib::clone!(
+        #[strong]
+        doc,
+        #[strong]
+        entry,
+        #[strong]
+        bar,
+        move |_| {
+            entry.set_text("");
+            *doc.filter.borrow_mut() = None;
+            bar.set_search_mode(false);
+            refresh_folds(&doc);
+            rebuild_sidebar(&doc);
+        }
+    ));
+}
+
+/// Apply the active filter: matches plus their ancestor chains stay
+/// visible, everything else hides. The filter bypasses folds, per
+/// the reference.
+fn apply_filter(doc: &Rc<Doc>) {
+    let Some((query, _)) = doc.filter.borrow().as_ref().map(|f| f.clone()) else {
+        return;
+    };
+    let text = buffer_text(doc).to_string();
+    let line_count = text.split('\n').count();
+    let doc_for_run = docket_core::Document::load(&text);
+    let matches = query.run_scoped_at(&doc_for_run, None, docket_core::dates::now());
+    let mut visible: HashSet<usize> = matches.iter().copied().collect();
+    let mut dimmed: HashSet<u32> = HashSet::new();
+    for &m in &matches {
+        let mut cur = m;
+        while let Some(p) = doc_for_run.parent_of(cur) {
+            visible.insert(p);
+            dimmed.insert(p as u32);
+            cur = p;
+        }
+    }
+
+    // Hide every non-visible line (its newline included).
+    doc.buffer.remove_tag(
+        &doc.folds.tag,
+        &doc.buffer.start_iter(),
+        &doc.buffer.end_iter(),
+    );
+    let mut i = 0;
+    while i < line_count {
+        if visible.contains(&i) {
+            i += 1;
+            continue;
+        }
+        let Some(start) = doc.buffer.iter_at_line(i as i32) else {
+            break;
+        };
+        let mut end = start;
+        while i < line_count && !visible.contains(&i) {
+            if let Some(next) = doc.buffer.iter_at_line(i as i32) {
+                end = next;
+                end.forward_to_line_end();
+                end.forward_char();
+            }
+            i += 1;
+        }
+        doc.buffer.apply_tag(&doc.folds.tag, &start, &end);
+    }
+
+    // Gutter: dimmed markers on ancestors, nothing elsewhere.
+    let mut foldable: HashSet<u32> = HashSet::new();
+    let mut folded: HashSet<u32> = HashSet::new();
+    for (i, line) in text.split('\n').enumerate() {
+        let content = line.trim_start_matches('\t');
+        if content.is_empty() || i + 1 >= line_count {
+            continue;
+        }
+        let depth = line.chars().take_while(|&c| c == '\t').count();
+        let next_depth = text
+            .split('\n')
+            .nth(i + 1)
+            .map(|l| l.chars().take_while(|&c| c == '\t').count())
+            .unwrap_or(0);
+        if next_depth > depth {
+            foldable.insert(i as u32);
+            if dimmed.contains(&(i as u32)) {
+                folded.insert(i as u32);
+            }
+        }
+    }
+    doc.renderer.set_lines(foldable, folded);
+    guard_caret(doc);
+}
+
+/// Bump the caret out of any invisible range it landed in.
+fn guard_caret(doc: &Rc<Doc>) {
+    let mark = doc.buffer.get_insert();
+    let iter = doc.buffer.iter_at_mark(&mark);
+    if !iter.has_tag(&doc.folds.tag) {
+        return;
+    }
+    // Walk back to the last visible char; if none, walk forward.
+    let mut back = iter;
+    while back.has_tag(&doc.folds.tag) {
+        if back.is_start() {
+            break;
+        }
+        back.backward_char();
+    }
+    if !back.has_tag(&doc.folds.tag) && back.offset() != iter.offset() {
+        doc.buffer.place_cursor(&back);
+        return;
+    }
+    let mut forward = iter;
+    while forward.has_tag(&doc.folds.tag) && !forward.is_end() {
+        forward.forward_char();
+    }
+    doc.buffer.place_cursor(&forward);
+}
+
+/// The sidebar model from the current document and config files.
+fn rebuild_sidebar(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    let (include, exclude) = config::tag_lists();
+    let searches = config::searches();
+    let model = sidebar::build_model(&text, &searches, &include, &exclude);
+    doc.sidebar.rebuild(&model);
+}
+
+fn wire_sidebar(doc: &Rc<Doc>, sidebar: &sidebar::Sidebar) {
+    let doc_cb = doc.clone();
+    sidebar.set_on_activate(Rc::new(move |kind| {
+        let entry = doc_cb.search_entry.clone();
+        let bar = doc_cb.search_bar.clone();
+        match kind {
+            sidebar::RowKind::Home => {
+                *doc_cb.scope.borrow_mut() = None;
+                *doc_cb.filter.borrow_mut() = None;
+                entry.set_text("");
+                bar.set_search_mode(false);
+                refresh_folds(&doc_cb);
+            }
+            sidebar::RowKind::Project { line } => {
+                *doc_cb.scope.borrow_mut() = Some(*line);
+                refresh_folds(&doc_cb);
+            }
+            sidebar::RowKind::Search { query } => {
+                entry.set_text(query);
+            }
+            sidebar::RowKind::Tag { name } => {
+                entry.set_text(&format!("@{name}"));
+            }
+            sidebar::RowKind::TagValue { name, value } => {
+                entry.set_text(&format!("@{name} contains[l] \"{value}\""));
+            }
+            sidebar::RowKind::Group(_) => {}
+        }
+    }));
+    rebuild_sidebar(doc);
 }

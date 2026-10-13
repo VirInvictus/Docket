@@ -11,6 +11,7 @@
 //! (the `matches` engine), `dates` (the `[d]` modifier, with the
 //! full date grammar) and `tz` (the local zone).
 
+pub mod census;
 pub mod classify;
 pub mod dates;
 pub mod document;
