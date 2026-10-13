@@ -8,7 +8,8 @@
 //! item list and nearest-shallower parenting). The query engine
 //! (spec "Query language") lives in `query` (lexer, parser, and
 //! canonical form) and `query_eval` (evaluation), served by `regex`
-//! (the `matches` engine) and `dates` (the `[d]` modifier).
+//! (the `matches` engine), `dates` (the `[d]` modifier, with the
+//! full date grammar) and `tz` (the local zone).
 
 pub mod classify;
 pub mod dates;
@@ -19,6 +20,7 @@ pub mod query_eval;
 pub mod regex;
 pub mod tags;
 pub mod text;
+pub mod tz;
 
 pub use document::Document;
 pub use item::{Item, ItemKind};

@@ -231,9 +231,24 @@ not midnight: `+1 week` means now plus one week.
 Combinations combine the forms, applied in order: `tomorrow 9am`,
 `Nov 26 3:15 +1day`.
 
-Input the grammar does not recognize falls back to ISO 8601
-parsing, including ISO week dates (`2016-W51-4`). Unparseable
-strings are invalid, never guessed.
+Input the grammar does not recognize falls back to strict ISO
+8601 parsing, which buys `T`-separated timestamps (with `Z` or
+numeric offsets, converted to local) and ISO week dates
+(`2016-W51-4`). Zoneless timestamps are local wall time. The empty
+string does not parse (a deliberate deviation: the reference
+grammar resolves it to now, which reads as a user mistake).
+
+Duration units carry the reference alias table exactly: `m` is
+minutes and months' letter is `o`, with whole-word matching
+rejecting the guarded prefixes (`sa` is not `s`, `mo` is not `m`).
+A time floors the base date to midnight before applying; durations
+apply in order; duration-only expressions resolve from now with
+the time of day preserved. The reference grammar's `pm` adds
+twelve hours unconditionally, so `12am` is noon and `12pm` is the
+following midnight; Docket keeps that arithmetic faithfully.
+Docket writes tag dates in the reference minimal form: the date,
+plus ` HH:mm` when a time is present, plus `:ss` and `:SSS` only
+when nonzero.
 
 The `[d]` relation modifier compares both sides of a predicate as
 dates, so `@due < tomorrow` behaves as a date comparison.
@@ -313,6 +328,10 @@ Still deferred, each to be pinned before the related phase ships:
 
 - Stylesheet selector and property semantics (only if user
   stylesheets ever leave the post-1.0 list).
-- The app's locale handling of week start (the guide says ISO
-  Monday; the author's library defaults to Sunday): Docket commits
-  to the guide and revisits only with user evidence.
+
+Resolved this pass (2026-10-12, cross-checked against the
+application's vendored grammar): weeks are ISO, Monday start,
+regardless of locale; the date tags are `@due`, `@start`, and
+`@done`; completion date stamping writes `YYYY-MM-DD` and defaults
+off. The date grammar's conformance vectors come from the author's
+MIT-licensed library specs.

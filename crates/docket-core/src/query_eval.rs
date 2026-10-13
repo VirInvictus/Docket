@@ -8,7 +8,7 @@
 
 use std::fmt;
 
-use crate::dates::{DateValue, parse_date};
+use crate::dates;
 use crate::document::Document;
 use crate::item::ItemKind;
 use crate::query::{AttrRef, Axis, Cmp, Node, Pred, Query, Rel, Slice, ValPart};
@@ -42,35 +42,42 @@ impl Query {
     /// Run the query against a document; results are item indices
     /// in document order.
     pub fn run(&self, doc: &Document) -> Result<Vec<usize>, EvalError> {
-        let mut items = eval_node(self.root(), doc, Sel::Root)?;
+        self.run_at(doc, crate::dates::now())
+    }
+
+    /// Run with an explicit reference instant for relative-date
+    /// keywords and durations; the refresh command passes a fresh
+    /// one, tests pass fixed ones.
+    pub fn run_at(&self, doc: &Document, now: i64) -> Result<Vec<usize>, EvalError> {
+        let mut items = eval_node(self.root(), doc, Sel::Root, now)?;
         items.sort_unstable();
         items.dedup();
         Ok(items)
     }
 }
 
-fn eval_node(node: &Node, doc: &Document, sel: Sel) -> Result<Vec<usize>, EvalError> {
+fn eval_node(node: &Node, doc: &Document, sel: Sel, now: i64) -> Result<Vec<usize>, EvalError> {
     match node {
-        Node::Path { steps, .. } => eval_steps(steps, doc, sel),
+        Node::Path { steps, .. } => eval_steps(steps, doc, sel, now),
         Node::Union(l, r) => {
-            let mut a = eval_node(l, doc, sel.clone())?;
-            a.extend(eval_node(r, doc, sel)?);
+            let mut a = eval_node(l, doc, sel.clone(), now)?;
+            a.extend(eval_node(r, doc, sel, now)?);
             a.sort_unstable();
             a.dedup();
             Ok(a)
         }
         Node::Except(l, r) => {
-            let a = eval_node(l, doc, sel.clone())?;
-            let b = eval_node(r, doc, sel)?;
+            let a = eval_node(l, doc, sel.clone(), now)?;
+            let b = eval_node(r, doc, sel, now)?;
             Ok(a.into_iter().filter(|i| !b.contains(i)).collect())
         }
         Node::Intersect(l, r) => {
-            let a = eval_node(l, doc, sel.clone())?;
-            let b = eval_node(r, doc, sel)?;
+            let a = eval_node(l, doc, sel.clone(), now)?;
+            let b = eval_node(r, doc, sel, now)?;
             Ok(a.into_iter().filter(|i| b.contains(i)).collect())
         }
         Node::Group(inner, slice) => {
-            let items = eval_node(inner, doc, sel)?;
+            let items = eval_node(inner, doc, sel, now)?;
             Ok(match slice {
                 Some(s) => apply_slice(items, s),
                 None => items,
@@ -83,6 +90,7 @@ fn eval_steps(
     steps: &[crate::query::Step],
     doc: &Document,
     sel: Sel,
+    now: i64,
 ) -> Result<Vec<usize>, EvalError> {
     let mut cur = sel;
     let mut result: Option<Vec<usize>> = None;
@@ -110,7 +118,7 @@ fn eval_steps(
         if let Some(pred) = &step.pred {
             let mut kept = Vec::new();
             for &i in &selected {
-                if eval_pred(pred, i, doc)? {
+                if eval_pred(pred, i, doc, now)? {
                     kept.push(i);
                 }
             }
@@ -204,13 +212,13 @@ fn axis_name(axis: Axis) -> &'static str {
     }
 }
 
-fn eval_pred(pred: &Pred, idx: usize, doc: &Document) -> Result<bool, EvalError> {
+fn eval_pred(pred: &Pred, idx: usize, doc: &Document, now: i64) -> Result<bool, EvalError> {
     match pred {
-        Pred::Group(inner) => eval_pred(inner, idx, doc),
-        Pred::And(l, r) => Ok(eval_pred(l, idx, doc)? && eval_pred(r, idx, doc)?),
-        Pred::Or(l, r) => Ok(eval_pred(l, idx, doc)? || eval_pred(r, idx, doc)?),
-        Pred::Not(inner) => Ok(!eval_pred(inner, idx, doc)?),
-        Pred::Cmp(cmp) => eval_cmp(cmp, idx, doc),
+        Pred::Group(inner) => eval_pred(inner, idx, doc, now),
+        Pred::And(l, r) => Ok(eval_pred(l, idx, doc, now)? && eval_pred(r, idx, doc, now)?),
+        Pred::Or(l, r) => Ok(eval_pred(l, idx, doc, now)? || eval_pred(r, idx, doc, now)?),
+        Pred::Not(inner) => Ok(!eval_pred(inner, idx, doc, now)?),
+        Pred::Cmp(cmp) => eval_cmp(cmp, idx, doc, now),
     }
 }
 
@@ -232,7 +240,7 @@ fn resolve_attr(idx: usize, name: &str, doc: &Document) -> Option<String> {
     }
 }
 
-fn eval_cmp(cmp: &Cmp, idx: usize, doc: &Document) -> Result<bool, EvalError> {
+fn eval_cmp(cmp: &Cmp, idx: usize, doc: &Document, now: i64) -> Result<bool, EvalError> {
     // Existence test: an attribute with no relation and no value.
     if cmp.rel.is_none() && cmp.value.is_empty() {
         return Ok(match &cmp.attr {
@@ -251,7 +259,7 @@ fn eval_cmp(cmp: &Cmp, idx: usize, doc: &Document) -> Result<bool, EvalError> {
         None => Some(doc.items[idx].body.clone()),
         Some(AttrRef::Name(n)) => resolve_attr(idx, n, doc),
         Some(AttrRef::Count(path)) => {
-            let n = eval_node(path, doc, Sel::Items(vec![idx]))?.len();
+            let n = eval_node(path, doc, Sel::Items(vec![idx]), now)?.len();
             Some(n.to_string())
         }
     };
@@ -259,18 +267,19 @@ fn eval_cmp(cmp: &Cmp, idx: usize, doc: &Document) -> Result<bool, EvalError> {
     let Some(left) = left else {
         return Ok(false);
     };
-    let right = match resolve_value(&cmp.value, idx, doc)? {
+    let right = match resolve_value(&cmp.value, idx, doc, now)? {
         Some(v) => v,
         None => return Ok(false),
     };
 
-    Ok(apply_rel(left, right, rel, mods))
+    Ok(apply_rel(left, right, rel, mods, now))
 }
 
 fn resolve_value(
     parts: &[ValPart],
     idx: usize,
     doc: &Document,
+    now: i64,
 ) -> Result<Option<String>, EvalError> {
     if parts.is_empty() {
         return Ok(Some(String::new()));
@@ -284,7 +293,7 @@ fn resolve_value(
                 None => return Ok(None),
             },
             ValPart::Count(path) => {
-                let n = eval_node(path, doc, Sel::Items(vec![idx]))?.len();
+                let n = eval_node(path, doc, Sel::Items(vec![idx]), now)?.len();
                 out.push(n.to_string());
             }
         }
@@ -296,14 +305,14 @@ fn resolve_value(
 enum Coerced {
     Str(String),
     Num(f64),
-    Date(DateValue),
+    Date(i64),
 }
 
-fn coerce(s: &str, mods: &str) -> Coerced {
+fn coerce(s: &str, mods: &str, now: i64) -> Coerced {
     if mods.contains('d') {
         // An unparseable date compares false: NaN does exactly that.
-        return match parse_date(s) {
-            Some(d) => Coerced::Date(d),
+        return match dates::parse(s, now) {
+            Some(d) => Coerced::Date(d.0),
             None => Coerced::Num(f64::NAN),
         };
     }
@@ -355,7 +364,7 @@ fn js_parse_float(s: &str) -> f64 {
     t[..end].parse().unwrap_or(f64::NAN)
 }
 
-fn apply_rel(left: String, right: String, rel: Rel, mods: &str) -> bool {
+fn apply_rel(left: String, right: String, rel: Rel, mods: &str, now: i64) -> bool {
     // `like` parses and never matches: the documented quirk.
     if rel == Rel::Like {
         return false;
@@ -390,12 +399,12 @@ fn apply_rel(left: String, right: String, rel: Rel, mods: &str) -> bool {
             Rel::Like => false,
             Rel::Lt | Rel::Le | Rel::Gt | Rel::Ge => ls.iter().any(|l| {
                 rs.iter()
-                    .any(|r| apply_rel(l.clone(), r.clone(), rel, &without_l))
+                    .any(|r| apply_rel(l.clone(), r.clone(), rel, &without_l, now))
             }),
         };
     }
 
-    match (coerce(&left, mods), coerce(&right, mods)) {
+    match (coerce(&left, mods, now), coerce(&right, mods, now)) {
         (Coerced::Num(a), Coerced::Num(b)) => match rel {
             Rel::Eq => a == b,
             Rel::Ne => a != b,

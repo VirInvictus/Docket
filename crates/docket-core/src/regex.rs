@@ -49,6 +49,12 @@ pub struct Regex {
     ast: Ast,
 }
 
+/// Backtracking is exponential in the worst case, and queries run
+/// live on the UI thread, so every search carries a step budget.
+/// Exhausting it fails the whole search: a pathological pattern
+/// degrades to "matched nothing" instead of hanging the app.
+const STEP_BUDGET: u64 = 1_000_000;
+
 struct Parser<'a> {
     chars: &'a [char],
     pos: usize,
@@ -68,10 +74,14 @@ impl Regex {
         Ok(Regex { ast })
     }
 
-    /// Unanchored search: does the pattern match anywhere?
+    /// Unanchored search: does the pattern match anywhere? A search
+    /// that exhausts the step budget fails closed.
     pub fn is_match(&self, text: &str) -> bool {
         let chars: Vec<char> = text.chars().collect();
-        (0..=chars.len()).any(|start| match_node(&self.ast, &chars, start, &|_| true))
+        let budget = std::cell::Cell::new(STEP_BUDGET);
+        let matched =
+            (0..=chars.len()).any(|start| match_node(&self.ast, &chars, start, &|_| true, &budget));
+        matched && budget.get() > 0
     }
 }
 
@@ -309,28 +319,55 @@ fn class_has(class: &Ast, c: char) -> bool {
     hit != *neg
 }
 
-fn match_node(node: &Ast, chars: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
+fn match_node(
+    node: &Ast,
+    chars: &[char],
+    pos: usize,
+    k: &dyn Fn(usize) -> bool,
+    budget: &std::cell::Cell<u64>,
+) -> bool {
+    // Charge one step per node visit; an empty budget prunes the
+    // whole search branch.
+    let left = budget.get();
+    if left == 0 {
+        return false;
+    }
+    budget.set(left - 1);
     match node {
         Ast::Char(c) => chars.get(pos) == Some(c) && k(pos + 1),
         Ast::Any => pos < chars.len() && chars[pos] != '\n' && k(pos + 1),
         Ast::Class { .. } => pos < chars.len() && class_has(node, chars[pos]) && k(pos + 1),
         Ast::Start => pos == 0 && k(pos),
         Ast::End => pos == chars.len() && k(pos),
-        Ast::Concat(nodes) => match_seq(nodes, chars, pos, k),
-        Ast::Alt(branches) => branches.iter().any(|b| match_node(b, chars, pos, k)),
+        Ast::Concat(nodes) => match_seq(nodes, chars, pos, k, budget),
+        Ast::Alt(branches) => branches
+            .iter()
+            .any(|b| match_node(b, chars, pos, k, budget)),
         Ast::Repeat {
             node,
             min,
             max,
             lazy,
-        } => rep(node, chars, pos, 0, *min, *max, *lazy, k),
+        } => rep(node, chars, pos, 0, *min, *max, *lazy, k, budget),
     }
 }
 
-fn match_seq(nodes: &[Ast], chars: &[char], pos: usize, k: &dyn Fn(usize) -> bool) -> bool {
+fn match_seq(
+    nodes: &[Ast],
+    chars: &[char],
+    pos: usize,
+    k: &dyn Fn(usize) -> bool,
+    budget: &std::cell::Cell<u64>,
+) -> bool {
     match nodes.split_first() {
         None => k(pos),
-        Some((first, rest)) => match_node(first, chars, pos, &|p| match_seq(rest, chars, p, k)),
+        Some((first, rest)) => match_node(
+            first,
+            chars,
+            pos,
+            &|p| match_seq(rest, chars, p, k, budget),
+            budget,
+        ),
     }
 }
 
@@ -344,15 +381,22 @@ fn rep(
     max: Option<u32>,
     lazy: bool,
     k: &dyn Fn(usize) -> bool,
+    budget: &std::cell::Cell<u64>,
 ) -> bool {
     let can_more = max.is_none_or(|m| count < m);
     let more = || -> bool {
         can_more
-            && match_node(node, chars, pos, &|p| {
-                // Zero-width progress guard: stop a repetition that
-                // matched nothing, once the minimum is met.
-                p != pos && rep(node, chars, p, count + 1, min, max, lazy, k)
-            })
+            && match_node(
+                node,
+                chars,
+                pos,
+                &|p| {
+                    // Zero-width progress guard: stop a repetition
+                    // that matched nothing, once the minimum is met.
+                    p != pos && rep(node, chars, p, count + 1, min, max, lazy, k, budget)
+                },
+                budget,
+            )
     };
     if count < min {
         return more();
@@ -431,6 +475,16 @@ mod tests {
         assert!(Regex::new("*x").is_err());
         assert!(Regex::new("[a").is_err());
         assert!(Regex::new("a{2,1}").is_err());
+    }
+
+    #[test]
+    fn pathological_patterns_fail_closed_instead_of_hanging() {
+        // Classic exponential blowups: a failing tail forces
+        // backtracking through every split; the budget ends it fast.
+        assert!(!m("(a|a)*b", &"a".repeat(40)));
+        assert!(!m("(a+)+$", &format!("{}!", "a".repeat(40))));
+        // Ordinary patterns still match normally.
+        assert!(m("a+b", &format!("{}b", "a".repeat(40))));
     }
 
     #[test]

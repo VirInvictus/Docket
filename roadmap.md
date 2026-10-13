@@ -67,21 +67,23 @@ fixture, query, and expected item ids as data.
 
 ## Phase 3: dates
 
-- [ ] Keyword dates: `now`, `yesterday`, `today`, `tomorrow`
+- [x] Keyword dates: `now`, `yesterday`, `today`, `tomorrow`
       (midnight)
-- [ ] Month and weekday names with `this` / `next` / `last` (next
+- [x] Month and weekday names with `this` / `next` / `last` (next
       month +1 year; next weekday +1 week); month names with
       optional day
-- [ ] `this|next|last <unit>` start-of-unit semantics (week,
+- [x] `this|next|last <unit>` start-of-unit semantics (week,
       month, quarter, year, isoweek)
-- [ ] Times: `at 2pm`, `2:15[:ss]`, am/pm
-- [ ] Durations: `+N unit` / `-N unit` with the documented unit
+- [x] Times: `at 2pm`, `2:15[:ss]`, am/pm
+- [x] Durations: `+N unit` / `-N unit` with the documented unit
       aliases, chainable, combinable after dates and times; a bare
       duration resolves from now, not midnight
-- [ ] ISO 8601 fallback including ISO week dates; absolute dates at
+- [x] ISO 8601 fallback including ISO week dates; absolute dates at
       local midnight; Monday-start weeks per the guide
-- [ ] Date comparisons wired through the query engine (the `[d]`
-      modifier, both sides coerced)
+- [x] Date comparisons wired through the query engine (the `[d]`
+      modifier, both sides coerced); conformance vectors from the
+      author's MIT-licensed library specs, run against an
+      injectable reference instant
 
 ## Phase 4: item paths (the remainder)
 
