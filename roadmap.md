@@ -41,26 +41,29 @@ The document contract, complete and pinned by tests.
 The full TaskPaper 3 search language. File-driven engine tests:
 fixture, query, and expected item ids as data.
 
-- [ ] Predicate grammar: `@attribute relation term` with the
+- [x] Predicate grammar: `@attribute relation term` with the
       documented defaults (`@text`, `contains`, case-insensitive);
       subsettable comparisons; quoted values with escapes;
       multi-word unquoted values as one value; reserved words
-- [ ] Relations: `= != < <= > >= contains beginswith endswith
+- [x] Relations: `= != < <= > >= contains beginswith endswith
       matches`, plus `like` accepted and matching nothing (the
       documented quirk); modifiers `[i] [s] [n] [d] [l]` with
       element-wise list semantics
-- [ ] Booleans: `and` binding tighter than `or`, grouped `not`,
+- [x] Booleans: `and` binding tighter than `or`, grouped `not`,
       parentheses
-- [ ] Type shortcuts: `project`, `task`, `note`
-- [ ] Set operations: `union`, `except`, `intersect` with the
+- [x] Type shortcuts: `project`, `task`, `note`
+- [x] Set operations: `union`, `except`, `intersect` with the
       documented precedence and right-associative chaining
-- [ ] Slicing: `[n]`, `[n:m]`, `[n:]`, `[:m]`, negative indices,
+- [x] Slicing: `[n]`, `[n:m]`, `[n:]`, `[:m]`, negative indices,
       clamping, exclusive ends
-- [ ] Failure semantics: missing or unparseable values compare
+- [x] Failure semantics: missing or unparseable values compare
       false rather than erroring; an invalid regex matches nothing;
       a parse failure reports the error and yields empty results
-- [ ] `count(path)`; canonical stringification of a parsed query
+- [x] `count(path)`; canonical stringification of a parsed query
       (defaults omitted) for display and round-tripping
+- [x] Multi-step structural paths (child, descendant,
+      descendant-or-self, parent, self) over the outline, with the
+      seeded default searches passing as cases
 
 ## Phase 3: dates
 
@@ -80,17 +83,23 @@ fixture, query, and expected item ids as data.
 - [ ] Date comparisons wired through the query engine (the `[d]`
       modifier, both sides coerced)
 
-## Phase 4: item paths
+## Phase 4: item paths (the remainder)
 
-- [ ] Steps of axis + type + predicate + slice; absolute vs
-      relative paths (a relative path's first step defaults to the
-      descendant axis); `//` and `///` shortcuts; `..` and `.`
-- [ ] XPath axes: ancestor, ancestor-or-self, child, descendant,
-      descendant-or-self, following, following-sibling, preceding,
-      preceding-sibling, parent, self
-- [ ] Wildcard `*`; results in document order, deduplicated
-- [ ] Scope semantics: queries evaluate within the focused or
-      hoisted subtree
+The structural axes, multi-step chaining, set operations, and
+slicing landed with Phase 2; what remains is the axes and the
+anchoring that Phase 2 defers.
+
+- [ ] Exotic XPath axes: ancestor, ancestor-or-self, following,
+      following-sibling, preceding, preceding-sibling (the child,
+      descendant, descendant-or-self, parent, and self axes already
+      evaluate)
+- [ ] Absolute vs relative anchoring with focus/hoist scope:
+      relative paths anchor at the focused subtree, absolute paths
+      at the document root
+- [ ] Oracle reconciliation of separator semantics (`/` and `//`
+      between steps) against the author's MIT-licensed reference
+      engine, resolving the guide-versus-implementation divergence
+      the spec flags
 
 ## Phase 5: app shell
 

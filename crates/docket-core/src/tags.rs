@@ -17,14 +17,14 @@ pub struct Tag<'a> {
     pub end: usize,
 }
 
-fn is_name_start(c: char) -> bool {
+pub(crate) fn is_name_start(c: char) -> bool {
     c.is_ascii_alphabetic()
         || c.is_ascii_digit()
         || c == '_'
         || ('\u{C0}'..='\u{FFFD}').contains(&c)
 }
 
-fn is_name_cont(c: char) -> bool {
+pub(crate) fn is_name_cont(c: char) -> bool {
     is_name_start(c)
         || c == '-'
         || c == '.'

@@ -1,0 +1,11 @@
+Work:
+	- Ship Docket 1.0 @priority(1) @due(2026-11-01)
+		- Write the query engine @done
+		- Write the date parser
+	- Review specs @today
+Home:
+	- Pay rent @due(2026-10-31)
+		- Call the bank @done(2026-10-10)
+	- Buy @2fast tickets @today
+Read: @archive
+A plain note

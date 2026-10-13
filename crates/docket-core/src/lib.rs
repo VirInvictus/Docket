@@ -5,16 +5,24 @@
 //! The format engine (spec "Document model") lives in `tags` (tag
 //! scanning), `classify` (content and item kinds), `text` (load,
 //! serialize, and the one-time normalizations), and `document` (the
-//! item list and nearest-shallower parenting).
+//! item list and nearest-shallower parenting). The query engine
+//! (spec "Query language") lives in `query` (lexer, parser, and
+//! canonical form) and `query_eval` (evaluation), served by `regex`
+//! (the `matches` engine) and `dates` (the `[d]` modifier).
 
 pub mod classify;
+pub mod dates;
 pub mod document;
 pub mod item;
+pub mod query;
+pub mod query_eval;
+pub mod regex;
 pub mod tags;
 pub mod text;
 
 pub use document::Document;
 pub use item::{Item, ItemKind};
+pub use query::Query;
 
 #[cfg(test)]
 mod tests {
