@@ -108,6 +108,73 @@ pub fn project_rows(text: &str) -> Vec<ProjectRow> {
     out
 }
 
+/// The inline completion for searchbar text whose tail is a partial
+/// `@tag`, drawn from `names` (census tag names, no `@`): returns the
+/// char offset of the `@` and the completed tag name, so the caller
+/// can insert `name` after the `@` and select what the typist has
+/// not yet typed. None when the text does not end in a completable
+/// partial: a bare `@`, a tail already inside a value or quoted
+/// string, a prefix no name extends, or a prefix that is already a
+/// full name.
+pub fn search_tag_completion(text: &str, names: &[String]) -> Option<(usize, String)> {
+    let chars: Vec<char> = text.chars().collect();
+    let at = chars.iter().rposition(|&c| c == '@')?;
+    let tail = &chars[at + 1..];
+    if tail.is_empty()
+        || tail
+            .iter()
+            .any(|&c| c.is_whitespace() || c == '(' || c == ')' || c == '"')
+    {
+        return None;
+    }
+    let partial: String = tail.iter().collect();
+    let mut candidates: Vec<&str> = names
+        .iter()
+        .map(String::as_str)
+        .filter(|n| n.starts_with(&partial))
+        .collect();
+    match candidates.len() {
+        0 => None,
+        1 => {
+            let name = candidates[0];
+            if name == partial {
+                None
+            } else {
+                Some((at, name.to_string()))
+            }
+        }
+        _ => {
+            candidates.sort_unstable();
+            let shared = common_prefix(&candidates);
+            if shared.chars().count() > partial.chars().count() {
+                Some((at, shared))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn common_prefix(names: &[&str]) -> String {
+    let mut out = String::new();
+    let mut iters: Vec<std::str::Chars> = names.iter().map(|n| n.chars()).collect();
+    loop {
+        let mut next = None;
+        for it in &mut iters {
+            let c = match it.next() {
+                Some(c) => c,
+                None => return out,
+            };
+            match next {
+                None => next = Some(c),
+                Some(p) if p == c => {}
+                Some(_) => return out,
+            }
+        }
+        out.push(next.unwrap());
+    }
+}
+
 /// A saved search row: label (content minus trailing tags) and the
 /// `@search(value)` query.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,5 +262,42 @@ mod tests {
         assert_eq!(rows[0].label, "Today");
         assert_eq!(rows[0].query, "@today union @due <[d] tomorrow");
         assert_eq!(rows[1].label, "Not Done");
+    }
+
+    #[test]
+    fn completion_extends_a_unique_tag() {
+        let names = vec!["done".to_string(), "due".to_string()];
+        assert_eq!(
+            search_tag_completion("find @don", &names),
+            Some((5, "done".to_string()))
+        );
+        // The offset counts chars, so multibyte text before the @
+        // still lands the insertion point right.
+        assert_eq!(
+            search_tag_completion("éé @don", &names),
+            Some((3, "done".to_string()))
+        );
+    }
+
+    #[test]
+    fn completion_takes_the_common_prefix_of_several() {
+        let names = vec!["dot".to_string(), "done".to_string()];
+        assert_eq!(
+            search_tag_completion("@d", &names),
+            Some((0, "do".to_string()))
+        );
+        // Already at the common prefix: nothing to add.
+        assert_eq!(search_tag_completion("@do", &names), None);
+    }
+
+    #[test]
+    fn completion_skips_full_names_values_and_bare_at() {
+        let names = vec!["done".to_string()];
+        assert_eq!(search_tag_completion("@done", &names), None);
+        assert_eq!(search_tag_completion("@done(2026", &names), None);
+        assert_eq!(search_tag_completion("@due \"quoted", &names), None);
+        assert_eq!(search_tag_completion("@", &names), None);
+        assert_eq!(search_tag_completion("@zzz", &names), None);
+        assert_eq!(search_tag_completion("no tag here", &names), None);
     }
 }

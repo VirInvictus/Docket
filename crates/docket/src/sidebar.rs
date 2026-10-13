@@ -5,6 +5,7 @@
 //! applies its query, a tag row filters by the tag, a tag-value row
 //! filters by the tag with the value.
 
+use gtk4::glib;
 use gtk4::prelude::*;
 use gtk4::{ListBox, ListBoxRow};
 use std::cell::RefCell;
@@ -131,14 +132,21 @@ pub type SidebarCallback = Rc<dyn Fn(&RowKind)>;
 
 pub struct Sidebar {
     list: ListBox,
-    on_activate: RefCell<Option<SidebarCallback>>,
+    /// Shared with clones: the clone stored in Doc rebuilds the
+    /// rows, so the activation callback set on the original must be
+    /// visible there or every row click lands on a no-op.
+    on_activate: Rc<RefCell<Option<SidebarCallback>>>,
+    /// The rebuilt rows' kinds, in row order; `row-activated`
+    /// resolves the clicked row through it.
+    kinds: Rc<RefCell<Vec<RowKind>>>,
 }
 
 impl Clone for Sidebar {
     fn clone(&self) -> Self {
         Sidebar {
             list: self.list.clone(),
-            on_activate: RefCell::new(None),
+            on_activate: self.on_activate.clone(),
+            kinds: self.kinds.clone(),
         }
     }
 }
@@ -149,10 +157,35 @@ impl Sidebar {
         list.set_selection_mode(gtk4::SelectionMode::Single);
         list.set_activate_on_single_click(true);
         list.add_css_class("docket-sidebar");
-        let _ = Rc::new(());
+        let on_activate: Rc<RefCell<Option<SidebarCallback>>> = Rc::new(RefCell::new(None));
+        let kinds: Rc<RefCell<Vec<RowKind>>> = Rc::new(RefCell::new(Vec::new()));
+        // The user-activation signal (single click per
+        // activate_on_single_click, double click, or Enter on the
+        // focused row). The row's own "activate" is only the
+        // keybinding path and never fires on clicks.
+        list.connect_row_activated(glib::clone!(
+            #[strong]
+            on_activate,
+            #[strong]
+            kinds,
+            move |_, row| {
+                let idx = row.index().max(0) as usize;
+                let kind = {
+                    let kinds_ref = kinds.borrow();
+                    let Some(kind) = kinds_ref.get(idx) else {
+                        return;
+                    };
+                    kind.clone()
+                };
+                if let Some(cb) = on_activate.borrow().as_ref() {
+                    cb(&kind);
+                }
+            }
+        ));
         Sidebar {
             list,
-            on_activate: RefCell::new(None),
+            on_activate,
+            kinds,
         }
     }
 
@@ -174,14 +207,8 @@ impl Sidebar {
         *self.on_activate.borrow_mut() = Some(cb);
     }
 
-    fn callback_handle(&self) -> SidebarCallback {
-        self.on_activate
-            .borrow()
-            .clone()
-            .unwrap_or_else(|| Rc::new(|_| {}))
-    }
-
     pub fn rebuild(&self, model: &SidebarModel) {
+        *self.kinds.borrow_mut() = model.rows.iter().map(|r| r.kind.clone()).collect();
         self.list.remove_all();
         for row in &model.rows {
             let box_row = ListBoxRow::new();
@@ -195,11 +222,6 @@ impl Sidebar {
                 label.add_css_class("caption");
             }
             box_row.set_child(Some(&label));
-            let kind = row.kind.clone();
-            let cb = self.callback_handle();
-            box_row.connect_activate(move |_| {
-                cb(&kind);
-            });
             self.list.append(&box_row);
         }
     }

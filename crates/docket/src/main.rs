@@ -24,6 +24,10 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 const APP_ID: &str = "io.github.virinvictus.Docket";
+/// The window's default width, shared with the divider math.
+const DEFAULT_WIDTH: i32 = 760;
+/// The sidebar column's fixed width; the editor takes the rest.
+const SIDEBAR_WIDTH: i32 = 220;
 
 /// Everything the window needs to keep between events.
 struct Doc {
@@ -71,15 +75,13 @@ fn activate(app: &Application, initial: Option<&Path>) {
     vir_gtk::theme::install_app_stylesheet(&vir_gtk::theme::base_css(
         &vir_gtk::theme::Palette::dragon(),
     ));
-    vir_gtk::theme::install_app_stylesheet(
-        ".docket-sidebar-debug { background-color: #2d4f67; }\n.docket-sidebar label { color: #c5c9c5; }\n",
-    );
+    vir_gtk::theme::install_app_stylesheet(".docket-sidebar label { color: #c5c9c5; }\n");
     styles::install();
 
     let window = ApplicationWindow::builder()
         .application(app)
         .title("Docket")
-        .default_width(760)
+        .default_width(DEFAULT_WIDTH)
         .default_height(980)
         .build();
 
@@ -110,7 +112,6 @@ fn activate(app: &Application, initial: Option<&Path>) {
     let search_bar = gtk4::SearchBar::new();
     search_bar.set_child(Some(&search_entry));
     search_bar.set_search_mode(false);
-    search_bar.set_key_capture_widget(Some(&view));
     search_bar.set_hexpand(true);
 
     let editor_box = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
@@ -124,14 +125,29 @@ fn activate(app: &Application, initial: Option<&Path>) {
         .hexpand(false)
         .vexpand(true)
         .build();
-    sidebar_scroll.set_width_request(220);
-    sidebar_scroll.add_css_class("docket-sidebar-debug");
+    sidebar_scroll.set_width_request(SIDEBAR_WIDTH);
     let pane = gtk4::Paned::new(gtk4::Orientation::Horizontal);
     pane.set_start_child(Some(&editor_box));
     pane.set_end_child(Some(&sidebar_scroll));
     pane.set_shrink_start_child(false);
-    // The position clamps until the pane is allocated; set it on map.
-    pane.connect_map(|pane| pane.set_position(760));
+    // The construct-time position (the Atrium/Colophon pattern) only
+    // lands when the final width matches default_width; under a
+    // tiling WM the allocation is the WM's, not ours. So the divider
+    // parks on the first idle after map, from the live allocation:
+    // sidebar fixed at its width, editor taking the rest. Later
+    // resizes keep the divider put, so the editor absorbs them.
+    pane.connect_map(|pane| {
+        glib::idle_add_local_once(glib::clone!(
+            #[weak]
+            pane,
+            move || {
+                let width = pane.width();
+                if width > SIDEBAR_WIDTH {
+                    pane.set_position(width - SIDEBAR_WIDTH);
+                }
+            }
+        ));
+    });
     window.set_child(Some(&pane));
 
     let folds = Rc::new(fold::FoldEngine::new(&buffer));
@@ -817,23 +833,61 @@ fn wire_actions(app: &Application, window: &ApplicationWindow, doc: &Rc<Doc>) {
     ));
     app.add_action(&quit);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
+
+    // Search opens on Ctrl+F (the reference cluster's Cmd+F); the
+    // sidebar's query rows reveal it too.
+    let start_search = gio::SimpleAction::new("start-search", None);
+    start_search.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| {
+            doc.search_bar.set_search_mode(true);
+            doc.search_entry.grab_focus();
+        }
+    ));
+    app.add_action(&start_search);
+    app.set_accels_for_action("app.start-search", &["<Control>f"]);
 }
 
 /// The searchbar: live filtering with parse errors surfaced, Escape
 /// clearing, and the sidebar rebuilt alongside (the sidebar reflects
 /// whatever the searchbar shows).
 fn wire_search(doc: &Rc<Doc>, entry: &gtk4::SearchEntry, bar: &gtk4::SearchBar) {
+    // The text completion last acted on: backspacing into a
+    // completed tag is a deletion and must not resurrect it.
+    let last_text: Rc<RefCell<String>> = Rc::new(RefCell::new(String::new()));
     entry.connect_search_changed(glib::clone!(
         #[strong]
         doc,
+        #[strong]
+        last_text,
         move |entry: &gtk4::SearchEntry| {
             let text = entry.text().to_string();
+            let prev = last_text.replace(text.clone());
+            let deleting = prev.starts_with(&text) && prev.len() > text.len();
             let trimmed = text.trim().to_string();
             if trimmed.is_empty() {
                 *doc.filter.borrow_mut() = None;
                 entry.remove_css_class("error");
                 refresh_folds(&doc);
                 rebuild_sidebar(&doc);
+                return;
+            }
+            // Inline tag completion: extend a trailing partial @tag
+            // from the document census. The suggested suffix stays
+            // selected, so the next keystroke replaces it; the
+            // set_text re-enters this handler with the completed
+            // text, which parses and filters there.
+            if !deleting && let Some((at, name)) = tag_completion(&doc, &text) {
+                let mut completed: String = text.chars().take(at).collect();
+                completed.push('@');
+                completed.push_str(&name);
+                let typed = text.chars().skip(at + 1).count();
+                entry.set_text(&completed);
+                entry.select_region(
+                    (at + 1 + typed) as i32,
+                    (at + 1 + name.chars().count()) as i32,
+                );
                 return;
             }
             match docket_core::query::Query::parse(&trimmed) {
@@ -866,6 +920,17 @@ fn wire_search(doc: &Rc<Doc>, entry: &gtk4::SearchEntry, bar: &gtk4::SearchBar) 
             rebuild_sidebar(&doc);
         }
     ));
+}
+
+/// The completion proposal for the searchbar's current text: tag
+/// names from the document census, minus the excluded ones.
+fn tag_completion(doc: &Rc<Doc>, text: &str) -> Option<(usize, String)> {
+    let doc_text = buffer_text(doc).to_string();
+    let (_, exclude) = config::tag_lists();
+    let names: Vec<String> = docket_core::census::tag_census(&doc_text, &exclude)
+        .into_keys()
+        .collect();
+    docket_core::census::search_tag_completion(text, &names)
 }
 
 /// Apply the active filter: matches plus their ancestor chains stay
@@ -995,12 +1060,18 @@ fn wire_sidebar(doc: &Rc<Doc>, sidebar: &sidebar::Sidebar) {
                 refresh_folds(&doc_cb);
             }
             sidebar::RowKind::Search { query } => {
+                bar.set_search_mode(true);
                 entry.set_text(query);
             }
             sidebar::RowKind::Tag { name } => {
+                // The reference reveals the field with the active
+                // query whenever a filter exists, but never steals
+                // focus from the editor.
+                bar.set_search_mode(true);
                 entry.set_text(&format!("@{name}"));
             }
             sidebar::RowKind::TagValue { name, value } => {
+                bar.set_search_mode(true);
                 entry.set_text(&format!("@{name} contains[l] \"{value}\""));
             }
             sidebar::RowKind::Group(_) => {}

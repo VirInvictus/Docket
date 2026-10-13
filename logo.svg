@@ -1,11 +1,23 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
-  <!-- Placeholder logo. Replace with the real mark before any public
-       packaging (roadmap Phase 8). Kanagawa Dragon palette. -->
-  <rect width="256" height="256" rx="48" fill="#181616"/>
-  <rect x="40" y="56" width="36" height="36" rx="8" fill="none" stroke="#87a987" stroke-width="8"/>
-  <path d="M48 74 l12 12 l20 -24" fill="none" stroke="#87a987" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="96" y="66" width="120" height="16" rx="8" fill="#c5c9c5"/>
-  <rect x="40" y="132" width="36" height="36" rx="8" fill="none" stroke="#625e5a" stroke-width="8"/>
-  <rect x="96" y="142" width="96" height="16" rx="8" fill="#625e5a"/>
-  <text x="128" y="224" font-family="sans-serif" font-size="30" font-weight="bold" fill="#c5c9c5" text-anchor="middle">Docket</text>
+  <!-- Docket: a clipboard of tasks in Kanagawa Dragon. A project
+       heading, one done row (check, struck bar), two open rows
+       (dash, bar). Same rounded-card family as the Quire mark. -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#181616"/>
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="none" stroke="#282727" stroke-width="2"/>
+  <!-- the sheet -->
+  <rect x="48" y="36" width="160" height="184" rx="12" fill="#23211f"/>
+  <rect x="48" y="36" width="160" height="184" rx="12" fill="none" stroke="#43423e" stroke-width="2"/>
+  <!-- the clip -->
+  <rect x="104" y="24" width="48" height="24" rx="10" fill="#c4b28a"/>
+  <rect x="114" y="32" width="28" height="8" rx="4" fill="#181616"/>
+  <!-- project heading -->
+  <rect x="66" y="70" width="84" height="13" rx="6" fill="#c5c9c5"/>
+  <!-- done row: check + struck bar -->
+  <path d="M 68 108 L 76 116 L 92 98" fill="none" stroke="#87a987" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="102" y="102" width="66" height="12" rx="6" fill="#625e5a"/>
+  <!-- open rows: dash + bar -->
+  <rect x="66" y="136" width="13" height="6" rx="3" fill="#8ba4b0"/>
+  <rect x="88" y="132" width="58" height="12" rx="6" fill="#8ea4a2"/>
+  <rect x="66" y="166" width="13" height="6" rx="3" fill="#8ba4b0"/>
+  <rect x="88" y="162" width="74" height="12" rx="6" fill="#8ba4b0"/>
 </svg>

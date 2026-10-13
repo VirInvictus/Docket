@@ -1,0 +1,96 @@
+# Flatpak manifest for Docket.
+#
+# Build:
+#   flatpak-builder --user --install --force-clean build-dir \
+#     data/io.github.virinvictus.Docket.yml
+#
+# Run:
+#   flatpak run io.github.virinvictus.Docket
+#
+# Targets the GNOME 50 runtime + the rust-stable SDK extension for
+# cargo. The build pipeline is plain cargo (the workspace is the
+# source of truth, no meson wrapper): the module's build-commands
+# build the `docket` binary and install it alongside the desktop,
+# AppStream, and icon data files from data/.
+#
+# Offline build (Flathub-shaped): `data/cargo-sources.json` is
+# generated from Cargo.lock by the vendored
+# `scripts/flatpak-cargo-generator.py` (MIT, from
+# flatpak/flatpak-builder-tools) via
+#   uv run scripts/flatpak-cargo-generator.py Cargo.lock -o data/cargo-sources.json
+# and checked in. flatpak-builder fetches the crates itself and lays
+# them into $CARGO_HOME/vendor with a source-replacement config, so
+# the build sandbox needs no network (CARGO_NET_OFFLINE pins it).
+# Regenerate whenever Cargo.lock changes.
+---
+app-id: io.github.virinvictus.Docket
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: docket
+
+# Skip flatpak-builder's appstreamcli-compose pass — librsvg's pixbuf
+# loader isn't reliably present on modern Fedora hosts (GTK4 renders
+# SVG natively without it). Flathub re-runs compose against its own
+# toolchain at submission time so this is harmless locally.
+appstream-compose: false
+
+# Build-time PATH/CARGO env so the rust-stable extension is visible.
+# No `--share=network` build-arg: the build runs offline against the
+# vendored cargo sources (the Flathub requirement).
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/docket/cargo
+    CARGO_NET_OFFLINE: 'true'
+
+# Sandbox permissions — minimal. Display + DRI for GTK4/Wayland;
+# home for the seeded config under $XDG_CONFIG_HOME/docket/, the view
+# state sidecar under $XDG_STATE_HOME/docket/, the extracted styles
+# under $XDG_DATA_HOME/docket/, and the .taskpaper documents
+# themselves. Network is intentionally absent — Docket is
+# local-first per spec.
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - /share/doc
+  - '*.la'
+  - '*.a'
+
+modules:
+
+  - name: docket
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --offline --package docket
+      - install -Dm755 target/release/docket ${FLATPAK_DEST}/bin/docket
+      - install -Dm644 data/io.github.virinvictus.Docket.desktop ${FLATPAK_DEST}/share/applications/io.github.virinvictus.Docket.desktop
+      - install -Dm644 data/io.github.virinvictus.Docket.metainfo.xml ${FLATPAK_DEST}/share/metainfo/io.github.virinvictus.Docket.metainfo.xml
+      # The PNG ladder is checked in (rendered from the master SVG
+      # with rsvg-convert), so software centers and the GNOME shell
+      # get rasterised icons without depending on gdk-pixbuf's
+      # librsvg loader at runtime.
+      - install -Dm644 data/icons/hicolor/scalable/apps/io.github.virinvictus.Docket.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/io.github.virinvictus.Docket.svg
+      - |
+        for sz in 128 256; do
+          install -Dm644 data/icons/hicolor/${sz}x${sz}/apps/io.github.virinvictus.Docket.png \
+            ${FLATPAK_DEST}/share/icons/hicolor/${sz}x${sz}/apps/io.github.virinvictus.Docket.png
+        done
+    sources:
+      # The tagged release. Each release bumps the tag line (and the
+      # commit sha once the tag exists) after tagging, the usual
+      # repo-manifest rhythm.
+      - type: git
+        url: https://github.com/VirInvictus/Docket.git
+        tag: v1.0.0
+      - cargo-sources.json

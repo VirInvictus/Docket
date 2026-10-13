@@ -28,7 +28,25 @@
   <provides>
     <binary>docket</binary>
   </provides>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/VirInvictus/Docket/main/data/screenshots/docket-dark.png</image>
+      <caption>A list with nested projects, the search-and-sidebar
+      view showing projects, saved searches, and tags</caption>
+    </screenshot>
+  </screenshots>
   <releases>
+    <release version="1.0.0" date="2026-10-13">
+      <description>
+        <p>The faithful editor. Outline behavior: folding with
+        persisted fold state, smart enter, indent and moves, done
+        toggling, paste re-parsing, and Archive Done. Live filtering
+        with the full query language from the searchbar (Ctrl+F),
+        a sidebar of projects, saved searches, and tags, inline tag
+        completion, and the real application icon with a Flatpak
+        manifest on the GNOME 50 runtime.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-10-12">
       <description>
         <p>Initial release: the document engine (format, query

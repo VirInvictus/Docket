@@ -7,15 +7,27 @@ Your files stay plain text that any editor can open; Docket makes
 them look, fold, and filter like an outliner without ever taking the
 text away from you.
 
-<!-- logo.svg is a placeholder; the real mark lands with packaging (roadmap Phase 8) -->
-
 The design contract lives in [spec.md](spec.md); the work plan in
 [roadmap.md](roadmap.md).
 
 ## Status
 
-Phase 0 skeleton: workspace, spec, CI. Real editing arrives with the
-Phase 1+ milestones in the roadmap.
+v1.0.0: the faithful editor per the spec. The full format, search,
+and date engine; a folding editor with continuous autosave and
+external-change reload; live filtering with the full query language;
+a sidebar of projects, saved searches, and tags; and Archive Done.
+Post-1.0 candidates (command palette, stylesheets, a CLI) are
+sequenced loosely in the roadmap.
+
+## Installing
+
+A Flatpak manifest targeting the GNOME 50 runtime ships in `data/`:
+
+```sh
+flatpak-builder --user --install --force-clean build-dir \
+  data/io.github.virinvictus.Docket.yml
+flatpak run io.github.virinvictus.Docket
+```
 
 ## Building
 

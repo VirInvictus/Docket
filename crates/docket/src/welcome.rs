@@ -25,7 +25,7 @@ The format even has a search language for tags and text:\n\
 \t@priority(1) and not @done\n\
 \tproject Errands @due <[d] next month\n\
 \n\
-(Docket's search bar arrives in an update.)\n\
+(These run live in Docket's search bar under Ctrl+F.)\n\
 \n\
 Everything saves as you type. Press Ctrl+O to open a list, or\n\
 Ctrl+Shift+S to give this one a name.\n";
