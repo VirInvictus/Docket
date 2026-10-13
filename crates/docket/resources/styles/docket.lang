@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Docket taskpaper language: the four item kinds plus tags. The
+  regexes approximate spec.md's classification for coloring only;
+  the engine in docket-core decides, this file only paints.
+
+  Every style keeps a map-to fallback so stock schemes still render
+  sensibly if one is ever loaded.
+-->
+<language id="docket" name="Docket TaskPaper" version="2.0" section="Source">
+  <metadata>
+    <property name="globs">*.taskpaper</property>
+  </metadata>
+
+  <styles>
+    <style id="project" name="Project" map-to="def:heading"/>
+    <style id="task-marker" name="Task Marker" map-to="def:list-marker"/>
+    <style id="tag" name="Tag" map-to="def:identifier"/>
+    <style id="done-line" name="Done Item" map-to="def:comment"/>
+  </styles>
+
+  <definitions>
+    <context id="docket">
+      <include>
+        <context ref="done-line"/>
+        <context ref="project"/>
+        <context ref="task-marker"/>
+        <context ref="tag"/>
+      </include>
+    </context>
+
+    <!-- A done task: marker, any content containing @done, to end of
+         line. Painted as one dim strikethrough run; this context
+         must precede the marker and tag contexts. -->
+    <context id="done-line" style-ref="done-line">
+      <match extended="true">
+        ^[ \t]*[-+*][ \t]
+        [^\n]*@done\b
+        [^\n]*$
+      </match>
+    </context>
+
+    <!-- A project: content whose colon ends the line, optionally
+         followed by a run of tags (the trailing-tag rule). -->
+    <context id="project" style-ref="project">
+      <match extended="true">
+        ^[ \t]*
+        (?:[^:@\n][^:\n]*)?:
+          (?:[ \t]+@[-.A-Za-z0-9]+(?:\([^)\n]*\))?)*
+        [ \t]*$
+      </match>
+    </context>
+
+    <!-- The task marker itself: dash, plus, or star + space. -->
+    <context id="task-marker" style-ref="task-marker">
+      <match extended="true">
+        ^[ \t]*
+        [-+*]
+        [ \t]
+      </match>
+    </context>
+
+    <!-- @done first so it wins over the generic tag context. -->
+    <context id="done-tag" style-ref="done-line">
+      <match>@done\b</match>
+    </context>
+
+    <!-- Generic tag: @name with an optional parenthesized value,
+         backslash-escaped parens allowed inside. -->
+    <context id="tag" style-ref="tag" class="no-spell-check">
+      <match>@[A-Za-z0-9_.\-]+(\((?:\\.|[^)\n])*\)?)?</match>
+    </context>
+  </definitions>
+</language>

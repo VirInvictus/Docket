@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Docket
+GenericName=Task list editor
+Comment=Plain-text task lists, TaskPaper format compatible
+Exec=docket %f
+Icon=io.github.virinvictus.Docket
+Terminal=false
+Categories=Office;ProjectManagement;
+MimeType=text/plain;text/x-taskpaper;
+Keywords=todo;tasks;taskpaper;plain-text;
+StartupWMClass=Docket

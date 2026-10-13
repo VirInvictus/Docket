@@ -57,9 +57,12 @@ const CASES: &[(&str, &[usize])] = &[
     // The seeded default searches.
     ("@today union @due <[d] tomorrow", &[4, 8]),
     ("not @done except @done//*", &[0, 1, 3, 4, 5, 6, 8, 9, 10]),
-    // Multi-step structural paths.
-    ("Work//*", &[1, 2, 3, 4]),
-    ("Home/.", &[6, 8]),
+    // Multi-step structural paths. // is descendant-or-self, so
+    // Work//* includes the Work project itself; /. is a descendant
+    // step then a child step (the grammar's own table).
+    ("Work//*", &[0, 1, 2, 3, 4]),
+    ("Work/*", &[1, 2, 3, 4]),
+    ("Home/.", &[7]),
     ("project task", &[]),
     // Slicing.
     ("task[0]", &[1]),
@@ -78,8 +81,7 @@ fn the_case_table_holds() {
     for (query, expected) in CASES {
         let results = Query::parse(query)
             .unwrap_or_else(|e| panic!("query {query:?} failed to parse: {}", e.message))
-            .run(&doc)
-            .unwrap_or_else(|e| panic!("query {query:?} failed to run: {e}"));
+            .run(&doc);
         assert_eq!(&results, expected, "query {query:?}");
     }
 }

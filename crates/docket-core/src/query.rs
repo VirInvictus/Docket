@@ -10,11 +10,12 @@
 //! strings, words, `@attribute` references, and `count(path)`
 //! expressions, joined with single spaces.
 //!
-//! Separator choice: a leading `/` anchors absolute and its step
-//! runs on the child axis; between steps `/` is the child axis,
-//! `//` descendant, `///` descendant-or-self, `.` child, `..`
-//! parent (the guide's table). The first step of a relative path
-//! is implicit descendant.
+//! Separator table (the reference grammar's own mapping, which
+//! outranks the user guide's looser prose): a leading `/` anchors
+//! absolute with a child-axis first step, a leading `//` is
+//! absolute plus descendant; between steps `/` is the descendant
+//! axis, `//` descendant-or-self, `.` child, `..` parent. The
+//! first step of a relative path is implicit descendant.
 
 use crate::item::ItemKind;
 
@@ -174,7 +175,6 @@ enum Tok {
     Ge,
     Slash,
     SlashSlash,
-    SlashSlashSlash,
     Dot,
     DotDot,
     LParen,
@@ -331,13 +331,9 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
                 }
             }
             '/' => {
-                if text[i..].starts_with("///") {
-                    i += 3;
-                    out.push(Token {
-                        tok: Tok::SlashSlashSlash,
-                        start,
-                    });
-                } else if text[i..].starts_with("//") {
+                // The reference grammar has no `///` token: `///`
+                // is `//` followed by `/` (two steps).
+                if text[i..].starts_with("//") {
                     i += 2;
                     out.push(Token {
                         tok: Tok::SlashSlash,
@@ -402,9 +398,12 @@ fn lex(text: &str) -> Result<Vec<Token>, ParseError> {
                 });
             }
             c if crate::tags::is_name_start(c) => {
+                // Query words keep dashes (so `2026-10-14` is one
+                // token) but not dots: the dot is a path separator.
+                let cont = |ch: char| crate::tags::is_name_cont(ch) && ch != '.';
                 let mut j = i + c.len_utf8();
                 while let Some(ch) = text[j..].chars().next() {
-                    if !crate::tags::is_name_cont(ch) {
+                    if !cont(ch) {
                         break;
                     }
                     j += ch.len_utf8();
@@ -565,11 +564,6 @@ impl Parser {
                 absolute = true;
                 first_axis = Some(Axis::Descendant);
             }
-            Some(Tok::SlashSlashSlash) => {
-                self.pos += 1;
-                absolute = true;
-                first_axis = Some(Axis::DescendantOrSelf);
-            }
             Some(Tok::Dot) => {
                 self.pos += 1;
                 absolute = false;
@@ -585,20 +579,18 @@ impl Parser {
 
         let mut steps = vec![self.parse_step(first_axis)?];
         loop {
+            // The grammar's separator table: / is the descendant
+            // axis, // descendant-or-self, . child, .. parent. (The
+            // user guide's "direct children" prose is looser than
+            // the shipped parser; the parser wins.)
             let axis = match self.peek() {
-                Some(Tok::Slash) => Axis::Child,
-                Some(Tok::SlashSlash) => Axis::Descendant,
-                Some(Tok::SlashSlashSlash) => Axis::DescendantOrSelf,
+                Some(Tok::Slash) => Axis::Descendant,
+                Some(Tok::SlashSlash) => Axis::DescendantOrSelf,
                 Some(Tok::Dot) => Axis::Child,
                 Some(Tok::DotDot) => Axis::Parent,
                 _ => break,
             };
             self.pos += 1;
-            // "/." is the child idiom: the slash and the dot are one
-            // child step, not two.
-            if axis == Axis::Child && self.peek() == Some(&Tok::Dot) {
-                self.pos += 1;
-            }
             steps.push(self.parse_step(Some(axis))?);
         }
         Ok(Node::Path { absolute, steps })
@@ -651,7 +643,6 @@ impl Parser {
             None => true,
             Some(Tok::Slash)
             | Some(Tok::SlashSlash)
-            | Some(Tok::SlashSlashSlash)
             | Some(Tok::Dot)
             | Some(Tok::DotDot)
             | Some(Tok::RParen)
@@ -667,7 +658,6 @@ impl Parser {
             None => false,
             Some(Tok::Slash)
             | Some(Tok::SlashSlash)
-            | Some(Tok::SlashSlashSlash)
             | Some(Tok::Dot)
             | Some(Tok::DotDot)
             | Some(Tok::RParen)
@@ -800,7 +790,6 @@ impl Parser {
                 Some(Tok::Str(s)) => parts.push(ValPart::Str(s.clone())),
                 Some(Tok::Attr(a)) => parts.push(ValPart::Attr(a.clone())),
                 Some(Tok::Star) => parts.push(ValPart::Str("*".into())),
-                Some(Tok::Dot) => parts.push(ValPart::Str(".".into())),
                 Some(Tok::Punct(c)) => parts.push(ValPart::Str(c.to_string())),
                 Some(Tok::Word(w)) if w == "count" && self.peek_at(1) == Some(&Tok::LParen) => {
                     self.pos += 2;
@@ -873,10 +862,10 @@ fn canonical_node(node: &Node) -> String {
             for (i, step) in steps.iter().enumerate() {
                 if i > 0 {
                     match step.axis {
-                        Some(Axis::Descendant) => out.push_str("//"),
-                        Some(Axis::DescendantOrSelf) => out.push_str("///"),
+                        Some(Axis::Descendant) | None => out.push('/'),
+                        Some(Axis::DescendantOrSelf) => out.push_str("//"),
+                        Some(Axis::Child) => out.push('.'),
                         Some(Axis::Parent) => out.push_str("/.."),
-                        Some(Axis::Child) | None => out.push('/'),
                         Some(other) => {
                             out.push('/');
                             out.push_str(axis_word(other));

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.virinvictus.Docket</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Docket</name>
+  <summary>Plain-text task lists for Linux, TaskPaper format compatible</summary>
+  <developer_name>Brandon LaRocque</developer_name>
+  <launchable type="desktop-id">io.github.virinvictus.Docket.desktop</launchable>
+  <url type="homepage">https://github.com/VirInvictus/Docket</url>
+  <url type="bugtracker">https://github.com/VirInvictus/Docket/issues</url>
+  <description>
+    <p>
+      Docket is a native GTK4 editor for the TaskPaper file format:
+      projects end with a colon, tasks start with a dash, notes are
+      everything else, and @tags mark things up. Your files stay
+      plain text that any editor can open; Docket makes them look,
+      fold, and filter like an outliner.
+    </p>
+    <p>
+      The file is the database: every edit autosaves, there is no
+      sync and no account, and the search bar speaks the full
+      TaskPaper query language. Docket is an independent
+      implementation and is not affiliated with Hog Bay Software.
+    </p>
+  </description>
+  <provides>
+    <binary>docket</binary>
+  </provides>
+  <releases>
+    <release version="0.2.0" date="2026-10-12">
+      <description>
+        <p>Initial release: the document engine (format, query
+        language, dates), the editing window with continuous
+        autosave and external-change reload, TaskPaper syntax
+        presentation in Kanagawa Dragon, and the welcome document.</p>
+      </description>
+    </release>
+  </releases>
+  <content_rating type="oars-1.1"/>
+</component>

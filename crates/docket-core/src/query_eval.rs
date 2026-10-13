@@ -3,35 +3,18 @@
 //! Results are item indices in document order. The failure
 //! semantics are the spec's: a missing or unparseable value makes a
 //! comparison false rather than erroring, an invalid regex matches
-//! nothing, and unsupported axes report an error (their machinery
-//! lands with Phase 4's full path work).
-
-use std::fmt;
+//! nothing, and an unparseable query is a parse-time error that the
+//! caller reports while showing no results. Evaluation itself
+//! cannot fail: every axis in the grammar is implemented.
 
 use crate::dates;
 use crate::document::Document;
 use crate::item::ItemKind;
 use crate::query::{AttrRef, Axis, Cmp, Node, Pred, Query, Rel, Slice, ValPart};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum EvalError {
-    UnsupportedAxis(&'static str),
-}
-
-impl fmt::Display for EvalError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            EvalError::UnsupportedAxis(name) => {
-                write!(f, "the {name} axis is not supported yet (Phase 4)")
-            }
-        }
-    }
-}
-
-impl std::error::Error for EvalError {}
-
 /// The running selection a step evaluates against. `Root` is the
-/// whole document; a count() path enters at its own item.
+/// whole document (or, when scoped, the focused subtree); a
+/// count() path enters at its own item.
 #[derive(Debug, Clone)]
 enum Sel {
     Root,
@@ -39,49 +22,71 @@ enum Sel {
 }
 
 impl Query {
-    /// Run the query against a document; results are item indices
-    /// in document order.
-    pub fn run(&self, doc: &Document) -> Result<Vec<usize>, EvalError> {
-        self.run_at(doc, crate::dates::now())
+    /// Run the query against the whole document; results are item
+    /// indices in document order.
+    pub fn run(&self, doc: &Document) -> Vec<usize> {
+        self.run_scoped_at(doc, None, dates::now())
     }
 
     /// Run with an explicit reference instant for relative-date
     /// keywords and durations; the refresh command passes a fresh
     /// one, tests pass fixed ones.
-    pub fn run_at(&self, doc: &Document, now: i64) -> Result<Vec<usize>, EvalError> {
-        let mut items = eval_node(self.root(), doc, Sel::Root, now)?;
+    pub fn run_at(&self, doc: &Document, now: i64) -> Vec<usize> {
+        self.run_scoped_at(doc, None, now)
+    }
+
+    /// Run inside a focus or hoist scope: relative paths anchor at
+    /// the focused item's subtree (the focused row included),
+    /// absolute paths anchor at the document root. `None` means no
+    /// scope: the whole document.
+    pub fn run_scoped_at(&self, doc: &Document, focus: Option<usize>, now: i64) -> Vec<usize> {
+        let mut items = eval_node(self.root(), doc, Sel::Root, focus, now);
         items.sort_unstable();
         items.dedup();
-        Ok(items)
+        items
     }
 }
 
-fn eval_node(node: &Node, doc: &Document, sel: Sel, now: i64) -> Result<Vec<usize>, EvalError> {
+fn eval_node(node: &Node, doc: &Document, sel: Sel, focus: Option<usize>, now: i64) -> Vec<usize> {
     match node {
-        Node::Path { steps, .. } => eval_steps(steps, doc, sel, now),
+        Node::Path { steps, absolute } => {
+            // A relative path in a scope anchors at the focused
+            // item; an absolute path always starts at the root.
+            let entry = match (sel, focus) {
+                (Sel::Root, Some(f)) if !*absolute => {
+                    Sel::Items(vec![f.min(doc.items.len().saturating_sub(1))])
+                }
+                (sel, _) => sel,
+            };
+            // Inside a scope the focused row itself belongs to the
+            // universe, so the implicit first axis is
+            // descendant-or-self.
+            let scoped = focus.is_some();
+            eval_steps(steps, doc, entry, *absolute, scoped, now)
+        }
         Node::Union(l, r) => {
-            let mut a = eval_node(l, doc, sel.clone(), now)?;
-            a.extend(eval_node(r, doc, sel, now)?);
+            let mut a = eval_node(l, doc, sel.clone(), focus, now);
+            a.extend(eval_node(r, doc, sel, focus, now));
             a.sort_unstable();
             a.dedup();
-            Ok(a)
+            a
         }
         Node::Except(l, r) => {
-            let a = eval_node(l, doc, sel.clone(), now)?;
-            let b = eval_node(r, doc, sel, now)?;
-            Ok(a.into_iter().filter(|i| !b.contains(i)).collect())
+            let a = eval_node(l, doc, sel.clone(), focus, now);
+            let b = eval_node(r, doc, sel, focus, now);
+            a.into_iter().filter(|i| !b.contains(i)).collect()
         }
         Node::Intersect(l, r) => {
-            let a = eval_node(l, doc, sel.clone(), now)?;
-            let b = eval_node(r, doc, sel, now)?;
-            Ok(a.into_iter().filter(|i| b.contains(i)).collect())
+            let a = eval_node(l, doc, sel.clone(), focus, now);
+            let b = eval_node(r, doc, sel, focus, now);
+            a.into_iter().filter(|i| b.contains(i)).collect()
         }
         Node::Group(inner, slice) => {
-            let items = eval_node(inner, doc, sel, now)?;
-            Ok(match slice {
+            let items = eval_node(inner, doc, sel, focus, now);
+            match slice {
                 Some(s) => apply_slice(items, s),
                 None => items,
-            })
+            }
         }
     }
 }
@@ -90,39 +95,39 @@ fn eval_steps(
     steps: &[crate::query::Step],
     doc: &Document,
     sel: Sel,
+    absolute: bool,
+    scoped: bool,
     now: i64,
-) -> Result<Vec<usize>, EvalError> {
+) -> Vec<usize> {
     let mut cur = sel;
     let mut result: Option<Vec<usize>> = None;
     for (n, step) in steps.iter().enumerate() {
-        let axis = step.axis.unwrap_or(if n == 0 {
+        let axis = step.axis.unwrap_or(if n == 0 && scoped && !absolute {
+            // The focused row belongs to the scoped universe.
+            Axis::DescendantOrSelf
+        } else if n == 0 {
             Axis::Descendant
         } else {
             Axis::Child
         });
         let mut selected = match &cur {
-            Sel::Root => apply_axis(axis, Sel::Root, doc)?,
+            Sel::Root => apply_axis(axis, Sel::Root, doc),
             Sel::Items(items) => {
                 let mut all = Vec::new();
                 for &i in items {
-                    all.extend(apply_axis(axis, Sel::Items(vec![i]), doc)?);
+                    all.extend(apply_axis(axis, Sel::Items(vec![i]), doc));
                 }
                 all.sort_unstable();
                 all.dedup();
                 all
             }
         };
+        eprintln!("[steps] n={n} axis={axis:?} selected={selected:?}");
         if let Some(ty) = step.ty {
             selected.retain(|&i| doc.items[i].kind() == ty);
         }
         if let Some(pred) = &step.pred {
-            let mut kept = Vec::new();
-            for &i in &selected {
-                if eval_pred(pred, i, doc, now)? {
-                    kept.push(i);
-                }
-            }
-            selected = kept;
+            selected.retain(|&i| eval_pred(pred, i, doc, now));
         }
         if let Some(slice) = &step.slice {
             selected = apply_slice(selected, slice);
@@ -130,34 +135,97 @@ fn eval_steps(
         cur = Sel::Items(selected.clone());
         result = Some(selected);
     }
-    Ok(result.unwrap_or_default())
+    result.unwrap_or_default()
 }
 
-fn apply_axis(axis: Axis, sel: Sel, doc: &Document) -> Result<Vec<usize>, EvalError> {
+fn apply_axis(axis: Axis, sel: Sel, doc: &Document) -> Vec<usize> {
     match (axis, sel) {
-        (Axis::Descendant | Axis::DescendantOrSelf, Sel::Root) => {
-            Ok((0..doc.items.len()).collect())
-        }
-        (Axis::Child, Sel::Root) => Ok((0..doc.items.len())
+        (Axis::Descendant | Axis::DescendantOrSelf, Sel::Root) => (0..doc.items.len()).collect(),
+        (Axis::Child, Sel::Root) => (0..doc.items.len())
             .filter(|&i| doc.items[i].depth == 0)
-            .collect()),
-        (Axis::SelfAxis | Axis::Parent, Sel::Root) => Ok(Vec::new()),
+            .collect(),
+        (Axis::SelfAxis | Axis::Parent | Axis::Ancestor, Sel::Root) => Vec::new(),
+        (Axis::AncestorOrSelf, Sel::Root) => (0..doc.items.len()).collect(),
+        (Axis::Following | Axis::Preceding, Sel::Root) => Vec::new(),
+        (Axis::FollowingSibling | Axis::PrecedingSibling, Sel::Root) => Vec::new(),
         (Axis::Descendant, Sel::Items(items)) => {
-            Ok(items.into_iter().flat_map(|i| subtree(doc, i)).collect())
+            items.into_iter().flat_map(|i| subtree(doc, i)).collect()
         }
         (Axis::DescendantOrSelf, Sel::Items(items)) => {
             let mut out = items.clone();
             out.extend(items.into_iter().flat_map(|i| subtree(doc, i)));
-            Ok(out)
+            out
         }
         (Axis::Child, Sel::Items(items)) => {
-            Ok(items.into_iter().flat_map(|i| children(doc, i)).collect())
+            items.into_iter().flat_map(|i| children(doc, i)).collect()
         }
-        (Axis::SelfAxis, Sel::Items(items)) => Ok(items),
+        (Axis::SelfAxis, Sel::Items(items)) => items,
         (Axis::Parent, Sel::Items(items)) => {
-            Ok(items.into_iter().flat_map(|i| doc.parent_of(i)).collect())
+            items.into_iter().flat_map(|i| doc.parent_of(i)).collect()
         }
-        (axis, _) => Err(EvalError::UnsupportedAxis(axis_name(axis))),
+        (Axis::Ancestor, Sel::Items(items)) => items
+            .into_iter()
+            .flat_map(|i| {
+                let mut out = Vec::new();
+                let mut cur = doc.parent_of(i);
+                while let Some(a) = cur {
+                    out.push(a);
+                    cur = doc.parent_of(a);
+                }
+                out
+            })
+            .collect(),
+        (Axis::AncestorOrSelf, Sel::Items(items)) => items
+            .into_iter()
+            .flat_map(|i| {
+                let mut out = vec![i];
+                let mut cur = doc.parent_of(i);
+                while let Some(a) = cur {
+                    out.push(a);
+                    cur = doc.parent_of(a);
+                }
+                out
+            })
+            .collect(),
+        (Axis::Following, Sel::Items(items)) => items
+            .into_iter()
+            .flat_map(|i| {
+                // Everything after the item's subtree closes.
+                let end = subtree(doc, i).last().map_or(i + 1, |&last| last + 1);
+                (end..doc.items.len()).collect::<Vec<_>>()
+            })
+            .collect(),
+        (Axis::Preceding, Sel::Items(items)) => {
+            // Everything before the item, ancestors excluded.
+            items
+                .into_iter()
+                .flat_map(|i| {
+                    let mut ancestors = Vec::new();
+                    let mut cur = doc.parent_of(i);
+                    while let Some(a) = cur {
+                        ancestors.push(a);
+                        cur = doc.parent_of(a);
+                    }
+                    (0..i)
+                        .filter(|j| !ancestors.contains(j))
+                        .collect::<Vec<_>>()
+                })
+                .collect()
+        }
+        (Axis::FollowingSibling, Sel::Items(items)) => items
+            .into_iter()
+            .flat_map(|i| match doc.parent_of(i) {
+                Some(p) => children(doc, p).into_iter().filter(|&c| c > i).collect(),
+                None => Vec::new(),
+            })
+            .collect(),
+        (Axis::PrecedingSibling, Sel::Items(items)) => items
+            .into_iter()
+            .flat_map(|i| match doc.parent_of(i) {
+                Some(p) => children(doc, p).into_iter().filter(|&c| c < i).collect(),
+                None => Vec::new(),
+            })
+            .collect(),
     }
 }
 
@@ -196,28 +264,12 @@ fn children(doc: &Document, i: usize) -> Vec<usize> {
     out
 }
 
-fn axis_name(axis: Axis) -> &'static str {
-    match axis {
-        Axis::Ancestor => "ancestor",
-        Axis::AncestorOrSelf => "ancestor-or-self",
-        Axis::Child => "child",
-        Axis::Descendant => "descendant",
-        Axis::DescendantOrSelf => "descendant-or-self",
-        Axis::Following => "following",
-        Axis::FollowingSibling => "following-sibling",
-        Axis::Preceding => "preceding",
-        Axis::PrecedingSibling => "preceding-sibling",
-        Axis::Parent => "parent",
-        Axis::SelfAxis => "self",
-    }
-}
-
-fn eval_pred(pred: &Pred, idx: usize, doc: &Document, now: i64) -> Result<bool, EvalError> {
+fn eval_pred(pred: &Pred, idx: usize, doc: &Document, now: i64) -> bool {
     match pred {
         Pred::Group(inner) => eval_pred(inner, idx, doc, now),
-        Pred::And(l, r) => Ok(eval_pred(l, idx, doc, now)? && eval_pred(r, idx, doc, now)?),
-        Pred::Or(l, r) => Ok(eval_pred(l, idx, doc, now)? || eval_pred(r, idx, doc, now)?),
-        Pred::Not(inner) => Ok(!eval_pred(inner, idx, doc, now)?),
+        Pred::And(l, r) => eval_pred(l, idx, doc, now) && eval_pred(r, idx, doc, now),
+        Pred::Or(l, r) => eval_pred(l, idx, doc, now) || eval_pred(r, idx, doc, now),
+        Pred::Not(inner) => !eval_pred(inner, idx, doc, now),
         Pred::Cmp(cmp) => eval_cmp(cmp, idx, doc, now),
     }
 }
@@ -230,24 +282,27 @@ fn resolve_attr(idx: usize, name: &str, doc: &Document) -> Option<String> {
     let body = &doc.items[idx].body;
     match name {
         "text" => Some(body.clone()),
-        "type" => Some(match doc.items[idx].kind() {
-            ItemKind::Project => "project".to_string(),
-            ItemKind::Task => "task".to_string(),
-            ItemKind::Note => "note".to_string(),
-        }),
+        "type" => Some(
+            match doc.items[idx].kind() {
+                ItemKind::Project => "project",
+                ItemKind::Task => "task",
+                ItemKind::Note => "note",
+            }
+            .to_string(),
+        ),
         "id" => Some(idx.to_string()),
         other => crate::tags::attribute(body, other).map(|v| v.into_owned()),
     }
 }
 
-fn eval_cmp(cmp: &Cmp, idx: usize, doc: &Document, now: i64) -> Result<bool, EvalError> {
+fn eval_cmp(cmp: &Cmp, idx: usize, doc: &Document, now: i64) -> bool {
     // Existence test: an attribute with no relation and no value.
     if cmp.rel.is_none() && cmp.value.is_empty() {
-        return Ok(match &cmp.attr {
+        return match &cmp.attr {
             None => true,
             Some(AttrRef::Name(n)) => resolve_attr(idx, n, doc).is_some(),
             Some(AttrRef::Count(_)) => true,
-        });
+        };
     }
 
     let (rel, mods) = cmp
@@ -259,46 +314,37 @@ fn eval_cmp(cmp: &Cmp, idx: usize, doc: &Document, now: i64) -> Result<bool, Eva
         None => Some(doc.items[idx].body.clone()),
         Some(AttrRef::Name(n)) => resolve_attr(idx, n, doc),
         Some(AttrRef::Count(path)) => {
-            let n = eval_node(path, doc, Sel::Items(vec![idx]), now)?.len();
+            let n = eval_node(path, doc, Sel::Items(vec![idx]), None, now).len();
             Some(n.to_string())
         }
     };
     // A missing value on either side makes the comparison false.
     let Some(left) = left else {
-        return Ok(false);
+        return false;
     };
-    let right = match resolve_value(&cmp.value, idx, doc, now)? {
-        Some(v) => v,
-        None => return Ok(false),
+    let Some(right) = resolve_value(&cmp.value, idx, doc, now) else {
+        return false;
     };
 
-    Ok(apply_rel(left, right, rel, mods, now))
+    apply_rel(left, right, rel, mods, now)
 }
 
-fn resolve_value(
-    parts: &[ValPart],
-    idx: usize,
-    doc: &Document,
-    now: i64,
-) -> Result<Option<String>, EvalError> {
+fn resolve_value(parts: &[ValPart], idx: usize, doc: &Document, now: i64) -> Option<String> {
     if parts.is_empty() {
-        return Ok(Some(String::new()));
+        return Some(String::new());
     }
     let mut out = Vec::with_capacity(parts.len());
     for part in parts {
         match part {
             ValPart::Str(s) => out.push(s.clone()),
-            ValPart::Attr(name) => match resolve_attr(idx, name, doc) {
-                Some(v) => out.push(v),
-                None => return Ok(None),
-            },
+            ValPart::Attr(name) => out.push(resolve_attr(idx, name, doc)?),
             ValPart::Count(path) => {
-                let n = eval_node(path, doc, Sel::Items(vec![idx]), now)?.len();
+                let n = eval_node(path, doc, Sel::Items(vec![idx]), None, now).len();
                 out.push(n.to_string());
             }
         }
     }
-    Ok(Some(out.join(" ")))
+    Some(out.join(" "))
 }
 
 #[derive(Debug, Clone)]
@@ -503,7 +549,7 @@ mod tests {
     }
 
     fn run(q: &str, d: &Document) -> Vec<usize> {
-        Query::parse(q).unwrap().run(d).unwrap()
+        Query::parse(q).unwrap().run(d)
     }
 
     #[test]
@@ -587,13 +633,6 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_axes_error() {
-        let d = doc("- a\n");
-        let err = Query::parse("ancestor::@x").unwrap().run(&d).unwrap_err();
-        assert!(err.to_string().contains("ancestor"));
-    }
-
-    #[test]
     fn attribute_references_as_values() {
         let d = doc(
             "- a @start(2026-01-01) @due(2026-01-01)\n- b @start(2026-01-01) @due(2026-02-02)\n",
@@ -602,9 +641,53 @@ mod tests {
     }
 
     #[test]
-    fn multi_step_paths_chain_structural_axes() {
+    fn multi_step_paths_chain_the_grammar_axes() {
+        // / is descendant, so P's slash-chain reaches the deep item
+        // through C without naming it.
         let d = doc("P:\n\tC:\n\t\t- deep\n\t- flat\n");
-        // P's children's descendants = the deep item only.
-        assert_eq!(run("P/*//*", &d), vec![2]);
+        assert_eq!(run("P/*//*", &d), vec![1, 2, 3]);
+        // "." is the child separator: P's children matching "flat".
+        assert_eq!(run("P.child::flat", &d), vec![3]);
+        assert_eq!(run("P.child::*", &d), vec![1, 3]);
+        // "/." mid-path is a descendant step then a child step.
+        assert_eq!(run("P/.", &d), vec![2]);
+    }
+
+    #[test]
+    fn exotic_axes() {
+        let d = doc("A:\n\t- one\n\t- two\nB:\n\t- three\nC:\n");
+        // items: 0 A, 1 one, 2 two, 3 B, 4 three, 5 C
+        assert_eq!(run("two/ancestor::*", &d), vec![0]);
+        assert_eq!(run("two/ancestor-or-self::*", &d), vec![0, 2]);
+        assert_eq!(run("one/following-sibling::*", &d), vec![2]);
+        assert_eq!(run("two/preceding-sibling::*", &d), vec![1]);
+        // following: everything after two's subtree closes.
+        assert_eq!(run("two/following::*", &d), vec![3, 4, 5]);
+        // preceding: everything before two, ancestors excluded.
+        assert_eq!(run("two/preceding::*", &d), vec![1]);
+        assert_eq!(run("three/ancestor::*", &d), vec![3]);
+    }
+
+    #[test]
+    fn scope_anchors_relative_paths_at_the_focus() {
+        let d = doc("A:\n\t- a @x\nB:\n\t- b @x\n");
+        // Unscoped: both @x items.
+        assert_eq!(run("@x", &d), vec![1, 3]);
+        // Scoped at A: the universe is A's subtree including the
+        // focused row; only the item actually carrying @x matches.
+        assert_eq!(
+            Query::parse("@x").unwrap().run_scoped_at(&d, Some(0), 0),
+            vec![1]
+        );
+        // Scoped at B likewise.
+        assert_eq!(
+            Query::parse("@x").unwrap().run_scoped_at(&d, Some(3), 0),
+            vec![3]
+        );
+        // Absolute paths ignore the scope.
+        assert_eq!(
+            Query::parse("//*").unwrap().run_scoped_at(&d, Some(0), 0),
+            (0..4).collect::<Vec<_>>()
+        );
     }
 }

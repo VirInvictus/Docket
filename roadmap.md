@@ -85,43 +85,47 @@ fixture, query, and expected item ids as data.
       author's MIT-licensed library specs, run against an
       injectable reference instant
 
-## Phase 4: item paths (the remainder)
+## Phase 4: item paths (done)
 
-The structural axes, multi-step chaining, set operations, and
-slicing landed with Phase 2; what remains is the axes and the
-anchoring that Phase 2 defers.
-
-- [ ] Exotic XPath axes: ancestor, ancestor-or-self, following,
+- [x] Exotic XPath axes: ancestor, ancestor-or-self, following,
       following-sibling, preceding, preceding-sibling (the child,
-      descendant, descendant-or-self, parent, and self axes already
-      evaluate)
-- [ ] Absolute vs relative anchoring with focus/hoist scope:
-      relative paths anchor at the focused subtree, absolute paths
-      at the document root
-- [ ] Oracle reconciliation of separator semantics (`/` and `//`
-      between steps) against the author's MIT-licensed reference
-      engine, resolving the guide-versus-implementation divergence
-      the spec flags
+      descendant, descendant-or-self, parent, and self axes landed
+      with Phase 2)
+- [x] Absolute vs relative anchoring with focus/hoist scope:
+      relative paths anchor at the focused subtree (run_scoped_at),
+      absolute paths at the document root
+- [x] Separator semantics reconciled against the reference
+      grammar's own source: between steps / is the descendant axis,
+      // descendant-or-self, . child, .. parent; there is no ///
+      token (it parses as // then /). The user guide's "direct
+      children" prose is looser than the shipped parser, and the
+      parser wins; spec.md carries the same table
 
 ## Phase 5: app shell
 
-- [ ] Single-window GtkSourceView editor: open, save, continuous
+- [x] Single-window GtkSourceView editor: open, save, continuous
       autosave, recents, welcome document on first run
-- [ ] External-change watch: auto-revert when clean, prompt
-      otherwise
-- [ ] Syntax presentation per the default theme's rules: projects
-      bold, notes italic, tags dimmed, `@done` content struck
+- [x] External-change watch: auto-revert when clean (the view
+      never holds unsaved state, so external changes always
+      reload, cursor and selection clamped)
+- [x] Syntax presentation per the default theme's rules: projects
+      bold, notes italic, tags dimmed, `@done` items struck
       through (content only, never tags); Kanagawa Dragon via
-      vir-gtk
-- [ ] View-state sidecar (fold, focus, filter) under
-      ~/.local/state/docket/, keyed by document content hash
-- [ ] Keyboard map mirrors TaskPaper's cluster (Ctrl where TaskPaper
-      uses Cmd), documented in-app
-- [ ] Desktop file and AppStream metainfo
+      vir-gtk, shipped as a bundled .lang plus style scheme
+- [x] Desktop file and AppStream metainfo
       (io.github.virinvictus.Docket), validated in CI
+- [x] Standard file accelerators (open, save-as, quit); the
+      task-cluster keymap moves to Phase 6 with the commands it
+      binds
+- [x] VERSION 0.2.0 with the release notes for the first packaged
+      release (tag pending)
 
 ## Phase 6: outline behavior
 
+- [ ] View-state sidecar (fold, focus, filter) under
+      ~/.local/state/docket/, keyed by document content hash; the
+      keyboard map mirrors TaskPaper's cluster (Ctrl where
+      TaskPaper uses Cmd), documented in-app
 - [ ] Folding: any item with children; fold gutter handle (click
       toggles, alt-click focuses); expand/collapse commands with
       Completely and By Level variants; guide lines beneath

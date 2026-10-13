@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<style-scheme id="docket-dark" _name="Docket Dark" version="1.0">
+  <metadata>
+    <property name="variant">dark</property>
+  </metadata>
+  <author>Brandon LaRocque</author>
+  <_description>Kanagawa Dragon palette for Docket</_description>
+
+  <!-- the buffer canvas and its text -->
+  <style name="text" foreground="#c5c9c5" background="#181616"/>
+  <style name="selection" foreground="#c5c9c5" background="#2d4f67"/>
+  <style name="cursor" foreground="#c5c9c5"/>
+  <style name="current-line" background="#1d1c1a"/>
+
+  <!-- item structure: projects bold, markers warm, tags dimmed,
+       done items struck through and dimmed -->
+  <style name="docket:project" foreground="#c8c093" bold="true"/>
+  <style name="docket:task-marker" foreground="#ffa066"/>
+  <style name="docket:tag" foreground="#8ba4b0" italic="true"/>
+  <style name="docket:done-line" foreground="#7a8382" strikethrough="true"/>
+</style-scheme>
