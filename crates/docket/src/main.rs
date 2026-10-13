@@ -119,7 +119,7 @@ fn load_file(doc: &Rc<Doc>, path: &Path) {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "Docket".into());
-    doc.window.set_title(Some(&format!("{name} — Docket")));
+    doc.window.set_title(Some(&format!("{name} - Docket")));
     watch(doc, path);
     let file = gio::File::for_path(path);
     gtk4::RecentManager::default().add_item(&file.uri());
@@ -133,7 +133,7 @@ fn load_welcome(doc: &Rc<Doc>) {
     *doc.loading.borrow_mut() = false;
     *doc.path.borrow_mut() = None;
     *doc.monitor.borrow_mut() = None;
-    doc.window.set_title(Some("Welcome — Docket"));
+    doc.window.set_title(Some("Welcome - Docket"));
 }
 
 /// Autosave: every buffer change writes the file, so the disk is

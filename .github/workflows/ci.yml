@@ -17,8 +17,7 @@ env:
 
 # Shape and action pins copied from Quire's ci.yml (the same Rust +
 # GTK4 + GtkSourceView stack; the pins are dependabot-maintained
-# fleet-wide). The desktop-file/appstream validation job joins when
-# Phase 5 adds the data files.
+# fleet-wide).
 
 jobs:
   package:

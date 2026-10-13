@@ -19,9 +19,10 @@
     </p>
     <p>
       The file is the database: every edit autosaves, there is no
-      sync and no account, and the search bar speaks the full
-      TaskPaper query language. Docket is an independent
-      implementation and is not affiliated with Hog Bay Software.
+      sync and no account, and the engine implements the full
+      TaskPaper query language and date grammar behind it. Docket
+      is an independent implementation and is not affiliated with
+      Hog Bay Software.
     </p>
   </description>
   <provides>

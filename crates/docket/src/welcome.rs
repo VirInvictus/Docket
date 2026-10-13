@@ -20,10 +20,12 @@ Tags annotate any line. They can take a value:\n\
 \n\
 \t- file taxes @due(2027-04-15) @priority(1)\n\
 \n\
-Search finds text, tags, and combinations of both:\n\
+The format even has a search language for tags and text:\n\
 \n\
 \t@priority(1) and not @done\n\
 \tproject Errands @due <[d] next month\n\
+\n\
+(Docket's search bar arrives in an update.)\n\
 \n\
 Everything saves as you type. Press Ctrl+O to open a list, or\n\
 Ctrl+Shift+S to give this one a name.\n";

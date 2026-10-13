@@ -4,6 +4,12 @@ Newest first.
 
 ## v0.2.0 (2026-10-12)
 
+- The format engine: the complete document model with the
+  reference classification rules (project colon after the
+  trailing tag run, three task markers, blank lines as empty note
+  items), the tag engine with boundary and escaping rules, and a
+  lossless idempotent writer proven over a fixture corpus of
+  real-world quirks.
 - The query engine: the full TaskPaper 3 search language
   (predicates with default-attribute and case-insensitivity
   fallbacks, all relations including the like-never-matches quirk,
