@@ -148,26 +148,24 @@ fixture, query, and expected item ids as data.
 
 ## Phase 7: filter and sidebar UI
 
-- [ ] Searchbar: hidden while empty, live filtering, syntax errors
-      surfaced in place, Escape cancels, refresh re-evaluates
-      relative dates against now
-- [ ] Results: matching items with their ancestor chains;
-      non-matching descendants hidden (the filtered fold state,
-      dimmed handle)
-- [ ] Saved searches as `@search(query)` items: embedded under a
-      `Searches:` project, or global in
-      ~/.config/docket/searches.taskpaper; defaults seeded (Today:
-      `@today union @due <[d] tomorrow`; Not Done: `not @done
-      except @done//*`)
-- [ ] Sidebar: Home, nested Projects, Searches, Tags with distinct
-      values as children; include/exclude tag configuration;
-      clicking a tag or tag value filters, in the sidebar and in
-      item text
-- [ ] Tag completion from the document census, in the editor and in
-      the searchbar
-- [ ] Archive done: find-or-create `Archive:`, move topmost done
-      items with descendants riding along, optional `@project`
-      origin tag recording the source path (preference)
+- [x] Searchbar: hidden while empty, live filtering with the full
+      query language, syntax errors surfaced via the error style,
+      Escape cancels and clears
+- [x] Results: matching items with their ancestor chains stay
+      visible, everything else hides; dimmed markers on partially
+      shown ancestors
+- [x] Saved searches from ~/.config/docket/searches.taskpaper,
+      seeded with the reference defaults (Today and Not Done);
+      refresh re-evaluates relative dates against now
+- [x] Sidebar: Home, nested Projects, Searches, Tags (values as
+      children, include/exclude via ~/.config/docket/
+      tags.taskpaper); clicking a tag or tag value filters, a
+      project click scopes
+- [x] Archive done: find-or-create `Archive:`, topmost done items
+      move with descendants riding along (Ctrl+Shift+A)
+- [ ] Tag completion in the editor and searchbar (the census exists;
+      the completion UI needs the GTK popup pattern research to
+      land) - deferred with the Move-to-Project palette work
 
 ## Phase 8: packaging and release (1.0)
 
