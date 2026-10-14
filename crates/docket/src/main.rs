@@ -9,6 +9,7 @@ mod fold;
 mod sidebar;
 mod sidecar;
 mod styles;
+mod templates;
 mod welcome;
 
 use gdk::Key;
@@ -58,20 +59,32 @@ thread_local! {
 }
 
 fn main() -> glib::ExitCode {
+    // `docket --template <name>` starts an untitled window from a
+    // shipped template (the New-from-template menu spawns it).
+    let template = std::env::args()
+        .nth(1)
+        .filter(|a| a == "--template")
+        .and_then(|_| std::env::args().nth(2))
+        .or_else(|| {
+            std::env::args()
+                .nth(1)
+                .and_then(|a| a.strip_prefix("--template=").map(|id| id.to_string()))
+        });
+
     let app = Application::builder()
         .application_id(APP_ID)
         .flags(gio::ApplicationFlags::NON_UNIQUE | gio::ApplicationFlags::HANDLES_OPEN)
         .build();
-    app.connect_activate(|app| activate(app, None));
+    app.connect_activate(move |app| activate(app, None, template.as_deref()));
     // Command-line documents arrive here through GApplication.
     app.connect_open(|app, files, _| {
         let path = files.first().and_then(|f| f.path());
-        activate(app, path.as_deref());
+        activate(app, path.as_deref(), None);
     });
     app.run()
 }
 
-fn activate(app: &Application, initial: Option<&Path>) {
+fn activate(app: &Application, initial: Option<&Path>, template: Option<&str>) {
     use vir_gtk::portal;
     portal::init(None, None, true);
     vir_gtk::theme::install_app_stylesheet(&vir_gtk::theme::base_css(
@@ -218,7 +231,10 @@ fn activate(app: &Application, initial: Option<&Path>) {
 
     match initial {
         Some(path) => load_file(&doc, path),
-        None => load_welcome(&doc),
+        None => match template.and_then(template_by_id) {
+            Some(text) => load_untitled(&doc, &text, template.unwrap_or("Template")),
+            None => load_welcome(&doc),
+        },
     }
     window.present();
     // The view holds the keyboard from the start: without this the
@@ -839,6 +855,14 @@ fn fold_hash_line(text: &str, hash: u64) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
+/// The template text for a menu id, case-insensitive.
+fn template_by_id(id: &str) -> Option<String> {
+    templates::TEMPLATES
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(id))
+        .map(|(_, text)| (*text).to_string())
+}
+
 fn cmd_archive(doc: &Rc<Doc>) {
     let text = buffer_text(doc).to_string();
     if let Some((new_text, _caret)) = docket_core::edit::archive_done(&text) {
@@ -1117,11 +1141,23 @@ fn load_file(doc: &Rc<Doc>, path: &Path) {
 /// It autosaves nowhere until the user names it.
 fn load_welcome(doc: &Rc<Doc>) {
     *doc.loading.borrow_mut() = true;
-    doc.buffer.set_text(welcome::WELCOME);
+    doc.buffer.set_text(&welcome::welcome());
     *doc.loading.borrow_mut() = false;
     *doc.path.borrow_mut() = None;
     *doc.monitor.borrow_mut() = None;
     doc.window.set_title(Some("Welcome - Docket"));
+    rebuild_sidebar(doc);
+}
+
+/// Load template text into an untitled buffer (no file, no watch);
+/// the save-as dialog names it.
+fn load_untitled(doc: &Rc<Doc>, text: &str, name: &str) {
+    *doc.loading.borrow_mut() = true;
+    doc.buffer.set_text(text);
+    *doc.loading.borrow_mut() = false;
+    *doc.path.borrow_mut() = None;
+    *doc.monitor.borrow_mut() = None;
+    doc.window.set_title(Some(&format!("{name} - Docket")));
     rebuild_sidebar(doc);
 }
 
@@ -1301,6 +1337,22 @@ fn wire_actions(app: &Application, window: &ApplicationWindow, doc: &Rc<Doc>) {
     });
     app.add_action(&new_list);
     app.set_accels_for_action("app.new", &["<Control>n"]);
+
+    // New from template: spawns a fresh process loading the shipped
+    // template untitled (the same window-per-document rule).
+    let template_action = gio::SimpleAction::new("template", Some(glib::VariantTy::STRING));
+    template_action.connect_activate(move |_, payload| {
+        if let Some(id) = payload.and_then(|v| v.str()) {
+            let Ok(exe) = std::env::current_exe() else {
+                return;
+            };
+            let _ = std::process::Command::new(exe)
+                .arg("--template")
+                .arg(id)
+                .spawn();
+        }
+    });
+    app.add_action(&template_action);
 
     // The rest of the command surface: same helpers the keymap
     // calls, reachable from the menu.
@@ -1697,7 +1749,14 @@ fn guard_caret(doc: &Rc<Doc>) {
 fn rebuild_sidebar(doc: &Rc<Doc>) {
     let text = buffer_text(doc).to_string();
     let (include, exclude) = config::tag_lists();
-    let searches = config::searches();
+    // Saved searches: the global config file plus the document's own
+    // embedded `Searches:` rows (the spec's either/or), config first.
+    let mut searches = config::searches();
+    for row in docket_core::census::search_rows(&text) {
+        if !searches.iter().any(|(label, _)| *label == row.label) {
+            searches.push((row.label, row.query));
+        }
+    }
     let model = sidebar::build_model(&text, &searches, &include, &exclude);
     doc.sidebar.rebuild(&model);
 }
@@ -1755,6 +1814,13 @@ fn build_menu() -> gio::Menu {
     file.append(Some("Save list as"), Some("app.save-as"));
     file.append(Some("Quit"), Some("app.quit"));
     menu.append_section(Some("List"), &file);
+
+    let template_section = gio::Menu::new();
+    for (name, _) in templates::TEMPLATES {
+        let escaped = name.replace('\'', "\\'");
+        template_section.append(Some(name), Some(&format!("app.template('{escaped}')")));
+    }
+    menu.append_section(Some("New from template"), &template_section);
 
     let item = gio::Menu::new();
     item.append(Some("Archive done"), Some("app.archive-done"));

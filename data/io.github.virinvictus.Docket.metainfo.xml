@@ -31,8 +31,8 @@
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/VirInvictus/Docket/main/data/screenshots/docket-dark.png</image>
-      <caption>A list with nested projects, the search-and-sidebar
-      view showing projects, saved searches, and tags</caption>
+      <caption>The start page: a working checklist with live
+      searches, tags, and the projects-searches-tags sidebar</caption>
     </screenshot>
   </screenshots>
   <releases>

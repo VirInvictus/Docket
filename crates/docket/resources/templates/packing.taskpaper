@@ -1,0 +1,18 @@
+Packing list
+
+Trip:
+	where, when, and the weather note
+
+Essentials:
+	- wallet, keys, phone @priority(1)
+	- chargers
+	- medication
+
+Clothes:
+	- layers
+	- comfortable shoes
+
+Before leaving:
+	- stop the mail @context(home)
+	- water the plants @context(home)
+	- check the stove @priority(1)

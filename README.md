@@ -7,6 +7,10 @@ Your files stay plain text that any editor can open; Docket makes
 them look, fold, and filter like an outliner without ever taking the
 text away from you.
 
+<p align="center">
+  <img src="data/screenshots/docket-dark.png" alt="Docket: the start page with a working checklist, live searches, tags, and the sidebar" width="880">
+</p>
+
 The design contract lives in [spec.md](spec.md); the work plan in
 [roadmap.md](roadmap.md).
 
