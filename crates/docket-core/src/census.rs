@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 /// split into separate entries. `exclude` drops names before they
 /// are observed at all.
 pub fn tag_census(text: &str, exclude: &[String]) -> BTreeMap<String, Vec<String>> {
-    let _exclude = exclude;
     let mut names: Vec<String> = Vec::new();
     let mut values: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for line in text.split('\n') {
@@ -16,6 +15,10 @@ pub fn tag_census(text: &str, exclude: &[String]) -> BTreeMap<String, Vec<String
             .into_iter()
             .map(|t| (t.name.to_string(), t.value.map(|v| v.into_owned())))
         {
+            // Excluded names drop before they are observed at all.
+            if exclude.iter().any(|x| x == &name) {
+                continue;
+            }
             if !names.iter().any(|x| x == &name) {
                 names.push(name.clone());
             }

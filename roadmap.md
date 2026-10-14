@@ -9,8 +9,8 @@ re-ordered or dropped. The spec outranks this file.
 - [x] Two-crate workspace (docket-core, docket), VERSION 0.1.0
 - [x] Spec, roadmap, patchnotes, README, AGENTS.md, LICENSE, logo
 - [x] CI: rustfmt, clippy with warnings denied, cargo test
-- [x] Public repo at Phase 0, the Quire precedent
-- [x] Roadmap fleshed to the full mapped surface (2026-10-12)
+- [x] Public repo at Phase 0
+- [x] Roadmap fleshed to the full mapped surface
 
 ## Phase 1: format engine
 
@@ -81,9 +81,8 @@ fixture, query, and expected item ids as data.
 - [x] ISO 8601 fallback including ISO week dates; absolute dates at
       local midnight; Monday-start weeks per the guide
 - [x] Date comparisons wired through the query engine (the `[d]`
-      modifier, both sides coerced); conformance vectors from the
-      author's MIT-licensed library specs, run against an
-      injectable reference instant
+      modifier, both sides coerced); conformance vectors run
+      against an injectable reference instant
 
 ## Phase 4: item paths (done)
 
@@ -94,10 +93,9 @@ fixture, query, and expected item ids as data.
 - [x] Absolute vs relative anchoring with focus/hoist scope:
       relative paths anchor at the focused subtree (run_scoped_at),
       absolute paths at the document root
-- [x] Separator semantics reconciled against the reference
-      grammar's own source: between steps / is the descendant axis,
-      // descendant-or-self, . child, .. parent; there is no ///
-      token (it parses as // then /). The user guide's "direct
+- [x] Separator semantics: between steps / is the descendant
+      axis, // descendant-or-self, . child, .. parent; there is no
+      /// token (it parses as // then /). The user guide's "direct
       children" prose is looser than the shipped parser, and the
       parser wins; spec.md carries the same table
 
@@ -130,8 +128,7 @@ fixture, query, and expected item ids as data.
       Shift-Tab indent
 - [x] Folding: any item with children folds via the gutter marker
       (click toggles); the caret is guarded out of hidden ranges;
-      copy and cut never leak folded text (the invisible-tag
-      pitfall the research flagged)
+      copy and cut never leak folded text
 - [x] Editing: smart enter (task continuation, project child,
       empty-item behavior, depth rule via anchor depth); Tab /
       Shift-Tab indent (never a literal tab); backspace at column
@@ -143,8 +140,8 @@ fixture, query, and expected item ids as data.
       re-stamp per the reference all-have-else-set rule); the
       dash-click hit zone is wired
 - [ ] Move to Project, item drag, undo grouping beyond the
-      buffer's own undo: deferred to the Phase 7 sidebar and the
-      post-1.0 polish pass (they need the palette infrastructure)
+      buffer's own undo: deferred to the post-1.0 polish pass
+      (they need the palette infrastructure)
 
 ## Phase 7: filter and sidebar UI
 
@@ -163,9 +160,8 @@ fixture, query, and expected item ids as data.
       project click scopes
 - [x] Archive done: find-or-create `Archive:`, topmost done items
       move with descendants riding along (Ctrl+Shift+A)
-- [ ] Tag completion in the editor and searchbar (the census exists;
-      the completion UI needs the GTK popup pattern research to
-      land) - deferred with the Move-to-Project palette work
+- [ ] Tag completion in the editor (the searchbar half shipped:
+      inline completion from the document census)
 
 ## Phase 8: packaging and release (1.0)
 

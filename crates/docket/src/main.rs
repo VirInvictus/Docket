@@ -188,6 +188,11 @@ fn activate(app: &Application, initial: Option<&Path>) {
         None => load_welcome(&doc),
     }
     window.present();
+    // The view holds the keyboard from the start: without this the
+    // key controller and app accels stay inert until the first
+    // click, even though typed characters still reach the buffer
+    // through the input method.
+    doc.view.grab_focus();
 
     // DOCKET_DEBUG_LAYOUT=1: print the layout facts after allocation
     // and exit. Verification without pixel capture.
@@ -254,9 +259,12 @@ fn wire_folds(doc: &Rc<Doc>) {
     ));
 }
 
+/// The document's full text, folded content included. The invisible
+/// tag is presentation: the engine and the file always see the
+/// canonical text. Only copy/cut deliberately strip it.
 fn buffer_text(doc: &Rc<Doc>) -> glib::GString {
     doc.buffer
-        .text(&doc.buffer.start_iter(), &doc.buffer.end_iter(), false)
+        .text(&doc.buffer.start_iter(), &doc.buffer.end_iter(), true)
 }
 
 /// Recompute foldable/folded line sets, reapply the invisible tag,
@@ -281,7 +289,8 @@ fn refresh_folds(doc: &Rc<Doc>) {
             }
         }
     }
-    doc.renderer.set_lines(foldable, folded_lines);
+    doc.renderer
+        .set_lines(foldable, folded_lines, HashSet::new());
     doc.folds.reapply(&doc.buffer);
 
     // Caret guard: if the insert mark landed in hidden text, move it
@@ -445,6 +454,12 @@ fn wire_editing(doc: &Rc<Doc>) {
                         return glib::Propagation::Stop;
                     }
                 }
+                Key::a | Key::A if ctrl && shift && !alt => {
+                    if let Some((new_text, _caret)) = docket_core::edit::archive_done(&text) {
+                        replace_document(&doc_for_key, new_text);
+                    }
+                    return glib::Propagation::Stop;
+                }
                 _ => {}
             }
             glib::Propagation::Proceed
@@ -452,12 +467,15 @@ fn wire_editing(doc: &Rc<Doc>) {
     ));
     doc.view.add_controller(key);
 
-    // Copy/cut must never leak folded (invisible) text: intercept
-    // and serialize without hidden chars.
+    // Copy/cut must never leak folded (invisible) text: intercept,
+    // serialize without hidden chars, and stop the emission so the
+    // default handler never overwrites the clipboard with the raw
+    // selection.
     doc.view.connect_copy_clipboard(glib::clone!(
         #[strong]
         doc,
         move |view| {
+            view.stop_signal_emission_by_name("copy-clipboard");
             let (start, end) = visible_selection(view, &doc.buffer);
             if start == end {
                 return;
@@ -470,6 +488,7 @@ fn wire_editing(doc: &Rc<Doc>) {
         #[strong]
         doc,
         move |view| {
+            view.stop_signal_emission_by_name("cut-clipboard");
             let (start, end) = visible_selection(view, &doc.buffer);
             if start == end {
                 return;
@@ -483,11 +502,14 @@ fn wire_editing(doc: &Rc<Doc>) {
         }
     ));
 
-    // Paste: full re-parse and depth-shift to the caret's depth.
+    // Paste: full re-parse and depth-shift to the caret's depth. The
+    // emission stops so the default raw paste never runs alongside
+    // the prepared insert.
     doc.view.connect_paste_clipboard(glib::clone!(
         #[strong]
         doc,
-        move |_| {
+        move |view| {
+            view.stop_signal_emission_by_name("paste-clipboard");
             doc.view.display().clipboard().read_text_async(
                 gio::Cancellable::NONE,
                 glib::clone!(
@@ -502,7 +524,16 @@ fn wire_editing(doc: &Rc<Doc>) {
                         if paste.is_empty() {
                             return;
                         }
-                        doc.buffer.insert_at_cursor(&format!("{paste}\n"));
+                        // The separator newline joins the paste to
+                        // the next line; at the document end it
+                        // would become a trailing newline, which the
+                        // format forbids.
+                        let at_end = caret >= doc.buffer.char_count() as usize;
+                        if at_end {
+                            doc.buffer.insert_at_cursor(&paste);
+                        } else {
+                            doc.buffer.insert_at_cursor(&format!("{paste}\n"));
+                        }
                     }
                 ),
             );
@@ -579,6 +610,7 @@ fn apply_edit(doc: &Rc<Doc>, new_text: &str, caret: usize) {
     doc.buffer
         .place_cursor(&doc.buffer.iter_at_offset(clamped as i32));
     doc.buffer.end_user_action();
+    autosave(doc);
 }
 
 /// Same, caret recomputed later by the fold refresh.
@@ -588,7 +620,23 @@ fn replace_document(doc: &Rc<Doc>, new_text: String) {
     doc.buffer.set_text(&new_text);
     *doc.loading.borrow_mut() = false;
     doc.buffer.end_user_action();
+    autosave(doc);
     refresh_folds(doc);
+}
+
+/// Write the buffer to the document's file. The changed handler
+/// skips this while `loading` is set (programmatic set_text must not
+/// double-write), so the whole-document edits above call it
+/// explicitly: the disk is the truth the moment an edit lands.
+fn autosave(doc: &Rc<Doc>) {
+    if let Some(path) = doc.path.borrow().as_ref() {
+        let text = doc
+            .buffer
+            .text(&doc.buffer.start_iter(), &doc.buffer.end_iter(), true);
+        *doc.loading.borrow_mut() = true;
+        let _ = std::fs::write(path, text.as_str());
+        *doc.loading.borrow_mut() = false;
+    }
 }
 
 /// Move the selected block up/down. Branch moves carry whole
@@ -680,7 +728,9 @@ fn load_welcome(doc: &Rc<Doc>) {
 }
 
 /// Autosave: every buffer change writes the file, so the disk is
-/// always the truth and there is no dirty state to lose.
+/// always the truth and there is no dirty state to lose. Programmatic
+/// whole-document edits suppress the handler via `loading` and call
+/// [`autosave`] themselves.
 fn wire_autosave(doc: &Rc<Doc>) {
     doc.buffer.connect_changed(glib::clone!(
         #[strong]
@@ -689,14 +739,7 @@ fn wire_autosave(doc: &Rc<Doc>) {
             if *doc.loading.borrow() {
                 return;
             }
-            if let Some(path) = doc.path.borrow().as_ref() {
-                let text = doc
-                    .buffer
-                    .text(&doc.buffer.start_iter(), &doc.buffer.end_iter(), false);
-                *doc.loading.borrow_mut() = true;
-                let _ = std::fs::write(path, text.as_str());
-                *doc.loading.borrow_mut() = false;
-            }
+            autosave(&doc);
         }
     ));
 }
@@ -728,7 +771,7 @@ fn watch(doc: &Rc<Doc>, path: &Path) {
                 };
                 let current =
                     doc.buffer
-                        .text(&doc.buffer.start_iter(), &doc.buffer.end_iter(), false);
+                        .text(&doc.buffer.start_iter(), &doc.buffer.end_iter(), true);
                 if current.as_str() == text {
                     return;
                 }
@@ -811,7 +854,7 @@ fn wire_actions(app: &Application, window: &ApplicationWindow, doc: &Rc<Doc>) {
                             let text = doc.buffer.text(
                                 &doc.buffer.start_iter(),
                                 &doc.buffer.end_iter(),
-                                false,
+                                true,
                             );
                             if std::fs::write(&path, text.as_str()).is_ok() {
                                 load_file(&doc, &path);
@@ -899,7 +942,9 @@ fn wire_search(doc: &Rc<Doc>, entry: &gtk4::SearchEntry, bar: &gtk4::SearchBar) 
                 Err(_) => {
                     entry.add_css_class("error");
                     *doc.filter.borrow_mut() = None;
-                    refresh_folds(&doc);
+                    // A query that fails to parse yields an empty
+                    // result; the error style surfaces the failure.
+                    hide_all(&doc);
                 }
             }
         }
@@ -935,7 +980,8 @@ fn tag_completion(doc: &Rc<Doc>, text: &str) -> Option<(usize, String)> {
 
 /// Apply the active filter: matches plus their ancestor chains stay
 /// visible, everything else hides. The filter bypasses folds, per
-/// the reference.
+/// the reference, and evaluates within the sidebar's project scope
+/// when one is set.
 fn apply_filter(doc: &Rc<Doc>) {
     let Some((query, _)) = doc.filter.borrow().as_ref().map(|f| f.clone()) else {
         return;
@@ -943,7 +989,7 @@ fn apply_filter(doc: &Rc<Doc>) {
     let text = buffer_text(doc).to_string();
     let line_count = text.split('\n').count();
     let doc_for_run = docket_core::Document::load(&text);
-    let matches = query.run_scoped_at(&doc_for_run, None, docket_core::dates::now());
+    let matches = query.run_scoped_at(&doc_for_run, *doc.scope.borrow(), docket_core::dates::now());
     let mut visible: HashSet<usize> = matches.iter().copied().collect();
     let mut dimmed: HashSet<u32> = HashSet::new();
     for &m in &matches {
@@ -982,7 +1028,8 @@ fn apply_filter(doc: &Rc<Doc>) {
         doc.buffer.apply_tag(&doc.folds.tag, &start, &end);
     }
 
-    // Gutter: dimmed markers on ancestors, nothing elsewhere.
+    // Gutter: actual folds keep their state; partially shown
+    // ancestors dim their handle per the spec.
     let mut foldable: HashSet<u32> = HashSet::new();
     let mut folded: HashSet<u32> = HashSet::new();
     for (i, line) in text.split('\n').enumerate() {
@@ -998,12 +1045,31 @@ fn apply_filter(doc: &Rc<Doc>) {
             .unwrap_or(0);
         if next_depth > depth {
             foldable.insert(i as u32);
-            if dimmed.contains(&(i as u32)) {
+            if doc.folds.is_folded_hash(fold::content_hash(content)) {
                 folded.insert(i as u32);
             }
         }
     }
-    doc.renderer.set_lines(foldable, folded);
+    doc.renderer.set_lines(foldable, folded, dimmed);
+    guard_caret(doc);
+}
+
+/// Hide the whole document: a failed query's empty result, per the
+/// spec's failure semantics. The error style on the entry carries
+/// the explanation.
+fn hide_all(doc: &Rc<Doc>) {
+    doc.buffer.remove_tag(
+        &doc.folds.tag,
+        &doc.buffer.start_iter(),
+        &doc.buffer.end_iter(),
+    );
+    doc.buffer.apply_tag(
+        &doc.folds.tag,
+        &doc.buffer.start_iter(),
+        &doc.buffer.end_iter(),
+    );
+    doc.renderer
+        .set_lines(HashSet::new(), HashSet::new(), HashSet::new());
     guard_caret(doc);
 }
 

@@ -73,8 +73,9 @@ author's MIT-licensed serialization:
 - **Project**: a line whose content ends with `:` as its final
   character, where content means the line text with its trailing
   tag run removed. The project name is the content before the
-  colon. Consequences: `- foo:` is a task, not a project, and
-  `Name: @done` is a project whose `@done` is ordinary text.
+  colon. Consequences: `- foo:` is a task, not a project, and tags
+  on a project line remain tags (the trailing-tag-run rule decides
+  classification, never tag interpretation).
 - **Task**: a line whose first non-whitespace characters are one of
   the task markers `- `, `+ `, or `* ` (dash, plus, or asterisk
   followed by a space). Docket recognizes all three on read and
@@ -96,16 +97,18 @@ folding, to filter scope, and to item paths below.
 **Tags** appear anywhere in an item's text as `@name` or
 `@name(value)`. A tag must be preceded by the start of the line or
 whitespace, and followed by whitespace or end of line, so email
-addresses and URLs never produce tags. Tag names may contain
-letters (Unicode ranges included), digits, `-`, and `.`, and may
-begin with a digit. Values are parenthesized; literal parentheses
-inside a value are escaped as `\(` and `\)`. A value may be a
-comma-separated list, which queries treat element-wise under the
-`[l]` modifier. The first occurrence of a duplicated tag name is
-the item's value for it; later occurrences are inert text.
-`@id`, `@text`, and `@type` are reserved names that never become
-tag attributes. A tag with empty parentheses carries an empty
-string value, which is distinct from the tag being absent.
+addresses and URLs never produce tags. Tag names use the reference
+identifier charset: Unicode letters (combining marks included),
+digits, `-`, `.`, `_`, the middle dot, and the reference's two
+ligated-punctuation marks, and may begin with a digit. Values are
+parenthesized; literal parentheses inside a value are escaped as
+`\(` and `\)`. A value may be a comma-separated list, which queries
+treat element-wise under the `[l]` modifier. The first occurrence
+of a duplicated tag name is the item's value for it; later
+occurrences are inert text. `@id`, `@text`, and `@type` are
+reserved names that never become tag attributes. A tag with empty
+parentheses carries an empty string value, which is distinct from
+the tag being absent.
 
 **Round-trip invariant.** Parsing followed by serializing is
 lossless and idempotent: the first pass normalizes line endings
@@ -180,17 +183,18 @@ project.
 
 **Item paths.** Paths control which part of the outline a search
 runs over, with XPath-like steps of axis, type, predicate, and
-optional slice. `/` is the child axis, `//` the descendant axis,
-`///` the descendant-or-self axis, `..` the parent axis, `.` the
-child axis, `*` the wildcard. Full axis names (`ancestor::`,
-`following-sibling::`, and the rest) are supported. A path with a
-leading `/` is absolute (anchored at the document root); a
-relative path's first step defaults to the descendant axis.
-Results are in document order and deduplicated. Set operations
-combine path results: `(project Inbox//* union //@today) except
-//@done`. Slices are zero-based with exclusive ends, negative
-indices counting from the end, and out-of-range values clamping:
-`project *//not @done[0]` yields each project's first open item.
+optional slice. Between steps, `/` is the descendant axis, `//`
+the descendant-or-self axis, `.` the child axis, and `..` the
+parent axis; there is no `///` token (it parses as `//` then `/`).
+A leading `/` anchors the path at the document root (absolute);
+`*` is the wildcard, and the full axis names (`ancestor::`,
+`following-sibling::`, and the rest) are supported. A relative
+path's first step defaults to the descendant axis. Results are in
+document order and deduplicated. Set operations combine path
+results: `(project Inbox//* union //@today) except //@done`. Slices
+are zero-based with exclusive ends, negative indices counting from
+the end, and out-of-range values clamping: `project *//not
+@done[0]` yields each project's first open item.
 
 **Failure semantics.** Missing or unparseable values make a
 comparison false, never an error. A query that fails to parse
@@ -260,7 +264,8 @@ dates, so `@due < tomorrow` behaves as a date comparison.
   on first run.
 - **Continuous autosave.** There is no save button and no dirty
   state; the file on disk is always the truth. External changes are
-  watched: auto-revert when the document is clean, prompt otherwise.
+  watched and always reload (the view never holds unsaved state to
+  prompt over), cursor and selection clamped.
 - Live formatting is presentation only. Highlighting, dimming, and
   folding change how text looks, never what it says. The default
   theme's rules: projects bold, notes italic, tags dimmed, `@done`

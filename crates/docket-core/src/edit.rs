@@ -92,12 +92,16 @@ fn marker_lead(content: &str) -> usize {
 /// sibling after the branch.
 ///
 /// Rules, in the reference order:
+/// - an empty item exits the list: Enter dedents it one level (an
+///   empty top-level line just takes a plain newline).
 /// - caret at or before the marker lead of a non-empty item: a new
 ///   empty item inserts ABOVE, at the same depth; the caret stays
 ///   on the original item.
 /// - caret exactly after the lead of a bare `- ` item (autoformat
 ///   on): the marker strips in place and the item becomes an empty
 ///   note; nothing is inserted.
+/// - caret at the end of a project line: a child task opens under
+///   the project.
 /// - everything else splits at the caret: the tail becomes a new
 ///   item below, prefixed with the dash when the current line has
 ///   one and the tail lacks it, at the formula depth.
@@ -118,6 +122,15 @@ pub fn smart_enter(
     let content = &line_text[content_off..];
     let lead = if autoformat { marker_lead(content) } else { 0 };
     let (s, e) = lines.range(line_no);
+
+    // An empty item exits the list: Enter dedents it one level.
+    if content.is_empty() && depth > 0 {
+        let text = shift_lines(text, line_no, line_no, -1, 0)?;
+        return Some(EditResult {
+            caret: s + (depth as usize) - 1,
+            text,
+        });
+    }
 
     // Strip the bare marker: caret exactly after "- " on a bare
     // dash item (autoformat only).
@@ -140,6 +153,19 @@ pub fn smart_enter(
         return Some(EditResult {
             text: chars.iter().collect(),
             caret: caret + len,
+        });
+    }
+
+    // Enter at the end of a project line opens a child task.
+    if content.ends_with(':') && caret_in_line == line_text.chars().count() {
+        let child_depth = depth + 1;
+        let inserted: Vec<char> = format!("\n{}- ", tabs(child_depth)).chars().collect();
+        let len = inserted.len();
+        let mut chars = lines.chars.clone();
+        chars.splice(e..e, inserted);
+        return Some(EditResult {
+            text: chars.iter().collect(),
+            caret: e + len,
         });
     }
 
@@ -457,11 +483,12 @@ pub fn archive_done(text: &str) -> Option<(String, usize)> {
     }
 
     // The block: every moved item's full subtree, each line rebased
-    // so the topmost item lands at the archive's child depth.
+    // so the topmost item lands at the archive's child depth (a
+    // fresh Archive: sits at top level, so its children indent one).
     let archive_line = lines
         .iter()
         .position(|l| l.trim_start_matches('\t').trim_end() == "Archive:");
-    let child_indent = archive_line.map(|al| depth_of(lines[al]) + 1).unwrap_or(0);
+    let child_indent = archive_line.map_or(1, |al| depth_of(lines[al]) + 1);
     let mut block_lines: Vec<usize> = Vec::new();
     let mut block: Vec<String> = Vec::new();
     for &i in &moved {
@@ -536,8 +563,20 @@ mod tests {
     fn enter_at_end_of_project_inserts_a_child_task() {
         let caret = pos(DOC, "Project:", 8);
         let r = smart_enter(DOC, caret, true, Some(1)).unwrap();
-        // A project continues with an empty NOTE, not a task.
-        assert!(r.text.contains("Project:\n\t\n\t- one"));
+        // The spec's rule: a project continues with a child task.
+        assert_eq!(r.text.find("Project:\n\t- \n\t- one"), Some(0));
+        // The caret parks after the fresh marker.
+        assert_eq!(r.caret, r.text.find("\t- \n\t- one").unwrap() + 3);
+    }
+
+    #[test]
+    fn enter_on_an_empty_item_exits_the_list() {
+        let text = "P:\n\t- one\n\t\n\t- two\n";
+        let caret = pos(text, "\t\n\t- two", 1);
+        let r = smart_enter(text, caret, true, Some(1)).unwrap();
+        // The empty item dedents to the parent level.
+        assert!(r.text.contains("- one\n\n\t- two"));
+        assert_eq!(r.caret, r.text.find("\n\n\t- two").unwrap() + 1);
     }
 
     #[test]
@@ -641,10 +680,10 @@ mod tests {
         let text = "P:\n\t- a @done\n\t- b\nQ:\n\t- c @done(2026-01-01)\n\t\t- child of c @done\n";
         let (new_text, _sel) = archive_done(text).unwrap();
         // The archive project is appended at the end; topmost done
-        // items (a, c) ride with their done children.
-        assert!(new_text.contains("Archive:\n"));
-        assert!(new_text.contains("- a @done"));
-        assert!(new_text.contains("- c @done(2026-01-01)"));
+        // items (a, c) ride with their done children, indented one
+        // level under the fresh top-level Archive:.
+        assert!(new_text.contains("Archive:\n\t- a @done"));
+        assert!(new_text.contains("\t- c @done(2026-01-01)"));
         // The done child rode along inside its parent: not duplicated.
         assert_eq!(new_text.matches("child of c").count(), 1);
         // The non-done item stayed put.

@@ -17,6 +17,7 @@
     <style id="task-marker" name="Task Marker" map-to="def:list-marker"/>
     <style id="tag" name="Tag" map-to="def:identifier"/>
     <style id="done-line" name="Done Item" map-to="def:comment"/>
+    <style id="note" name="Note"/>
   </styles>
 
   <definitions>
@@ -26,17 +27,20 @@
         <context ref="project"/>
         <context ref="task-marker"/>
         <context ref="tag"/>
+        <context ref="note"/>
       </include>
     </context>
 
-    <!-- A done task: marker, any content containing @done, to end of
-         line. Painted as one dim strikethrough run; this context
-         must precede the marker and tag contexts. -->
+    <!-- A done task's content: the marker plus everything up to
+         the first tag, struck and dimmed, only on lines carrying
+         @done. The tags themselves stay with the tag context
+         (content only, never tags). -->
     <context id="done-line" style-ref="done-line">
       <match extended="true">
         ^[ \t]*[-+*][ \t]
-        [^\n]*@done\b
-        [^\n]*$
+        (?=[^\n]*@done\b)
+        [^\n@]*
+        (?=@|\n|$)
       </match>
     </context>
 
@@ -60,15 +64,20 @@
       </match>
     </context>
 
-    <!-- @done first so it wins over the generic tag context. -->
-    <context id="done-tag" style-ref="done-line">
-      <match>@done\b</match>
-    </context>
-
     <!-- Generic tag: @name with an optional parenthesized value,
          backslash-escaped parens allowed inside. -->
     <context id="tag" style-ref="tag" class="no-spell-check">
       <match>@[A-Za-z0-9_.\-]+(\((?:\\.|[^)\n])*\)?)?</match>
+    </context>
+
+    <!-- A note: any line that is not a task (projects and done
+         lines matched earlier) and has content. -->
+    <context id="note" style-ref="note">
+      <match extended="true">
+        ^[ \t]*
+        (?![ \t]*[-+*][ \t])
+        [^\n]+$
+      </match>
     </context>
   </definitions>
 </language>

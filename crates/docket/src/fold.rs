@@ -117,12 +117,14 @@ impl FoldEngine {
     }
 }
 
-/// The fold state the renderer reads: foldable lines and currently
-/// folded lines, both by line index.
+/// The fold state the renderer reads: foldable lines, currently
+/// folded lines, and lines whose handle dims (partially shown
+/// ancestors under an active filter), all by line index.
 #[derive(Default)]
 struct FoldView {
     foldable: HashSet<u32>,
     folded: HashSet<u32>,
+    dimmed: HashSet<u32>,
 }
 
 /// The click callback type: a header line index.
@@ -182,7 +184,10 @@ impl sourceview5::subclass::gutter_renderer::GutterRendererImpl for FoldRenderer
         if !self.view_state.borrow().foldable.contains(&line) {
             return;
         }
-        let folded = self.view_state.borrow().folded.contains(&line);
+        let (folded, dimmed) = {
+            let state = self.view_state.borrow();
+            (state.folded.contains(&line), state.dimmed.contains(&line))
+        };
         let marker = if folded { "\u{25be}" } else { "\u{25b8}" };
         let obj = self.obj();
         let layout = obj.create_pango_layout(Some(marker));
@@ -192,7 +197,8 @@ impl sourceview5::subclass::gutter_renderer::GutterRendererImpl for FoldRenderer
         let y = natural as f32 / 2.0 - h as f32 / 2.0;
         snapshot.save();
         snapshot.translate(&gtk4::graphene::Point::new(4.0, y.max(1.0).round()));
-        snapshot.append_layout(&layout, &gdk::RGBA::parse("#8ba4b0").unwrap());
+        let color = if dimmed { "#625e5a" } else { "#8ba4b0" };
+        snapshot.append_layout(&layout, &gdk::RGBA::parse(color).unwrap());
         snapshot.restore();
         let _ = w;
     }
@@ -232,11 +238,12 @@ impl FoldGutterRenderer {
         self.imp().on_toggle.replace(Some(cb));
     }
 
-    pub fn set_lines(&self, foldable: HashSet<u32>, folded: HashSet<u32>) {
+    pub fn set_lines(&self, foldable: HashSet<u32>, folded: HashSet<u32>, dimmed: HashSet<u32>) {
         {
             let mut state = self.imp().view_state.borrow_mut();
             state.foldable = foldable;
             state.folded = folded;
+            state.dimmed = dimmed;
         }
         self.queue_draw();
     }

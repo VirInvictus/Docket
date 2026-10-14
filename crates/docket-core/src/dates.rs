@@ -768,7 +768,6 @@ fn parse_iso_datetime(text: &str) -> Option<DateTime> {
             0i64
         }
         Some(sign @ (b'+' | b'-')) => {
-            eprintln!("[off] sign at {i}");
             let sign = if *sign == b'-' { -1i64 } else { 1i64 };
             i += 1;
             let (oh, l) = digit_run(text, i)?;

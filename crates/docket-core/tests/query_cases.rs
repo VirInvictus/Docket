@@ -46,8 +46,9 @@ const CASES: &[(&str, &[usize])] = &[
     ("@text matches \"^Work\"", &[0]),
     // The documented quirk: like parses and never matches.
     ("@text like engine", &[]),
-    // Dates: absolute ISO forms compare; keywords like `tomorrow`
-    // stay unparseable (and compare false) until Phase 3's grammar.
+    // Dates: absolute ISO forms compare; keyword dates compare as
+    // dates against the table's frozen reference instant (the
+    // fixture's dues both sit after it, so `tomorrow` matches none).
     ("@due <[d] 2026-11-01", &[6]),
     ("@due <[d] tomorrow", &[]),
     // Set operations.
@@ -78,10 +79,14 @@ const CASES: &[(&str, &[usize])] = &[
 #[test]
 fn the_case_table_holds() {
     let doc = Document::load(DOC);
+    // The table runs against a frozen reference instant so relative
+    // keywords (`tomorrow`) are deterministic; the fixture's dates
+    // sit after it, which is what the date cases expect.
+    let now = docket_core::dates::parse("2026-10-15", 0).unwrap().0;
     for (query, expected) in CASES {
         let results = Query::parse(query)
             .unwrap_or_else(|e| panic!("query {query:?} failed to parse: {}", e.message))
-            .run(&doc);
+            .run_at(&doc, now);
         assert_eq!(&results, expected, "query {query:?}");
     }
 }

@@ -122,7 +122,6 @@ fn eval_steps(
                 all
             }
         };
-        eprintln!("[steps] n={n} axis={axis:?} selected={selected:?}");
         if let Some(ty) = step.ty {
             selected.retain(|&i| doc.items[i].kind() == ty);
         }

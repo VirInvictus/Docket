@@ -12,10 +12,12 @@
   <style name="cursor" foreground="#c5c9c5"/>
   <style name="current-line" background="#1d1c1a"/>
 
-  <!-- item structure: projects bold, markers warm, tags dimmed,
-       done items struck through and dimmed -->
+  <!-- item structure: projects bold, notes italic, markers warm,
+       tags dimmed, done items struck through (content only, never
+       tags: the done context stops at the first tag) -->
   <style name="docket:project" foreground="#c8c093" bold="true"/>
   <style name="docket:task-marker" foreground="#ffa066"/>
   <style name="docket:tag" foreground="#8ba4b0" italic="true"/>
   <style name="docket:done-line" foreground="#7a8382" strikethrough="true"/>
+  <style name="docket:note" italic="true"/>
 </style-scheme>
