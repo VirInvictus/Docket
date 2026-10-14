@@ -877,8 +877,9 @@ fn wire_actions(app: &Application, window: &ApplicationWindow, doc: &Rc<Doc>) {
     app.add_action(&quit);
     app.set_accels_for_action("app.quit", &["<Control>q"]);
 
-    // Search opens on Ctrl+F (the reference cluster's Cmd+F); the
-    // sidebar's query rows reveal it too.
+    // Search opens on Ctrl+Shift+F, mirroring the reference cluster's
+    // Cmd+Shift+F Begin Editor Search; the sidebar's query rows reveal
+    // it too. Ctrl+F stays reserved.
     let start_search = gio::SimpleAction::new("start-search", None);
     start_search.connect_activate(glib::clone!(
         #[strong]
@@ -889,7 +890,7 @@ fn wire_actions(app: &Application, window: &ApplicationWindow, doc: &Rc<Doc>) {
         }
     ));
     app.add_action(&start_search);
-    app.set_accels_for_action("app.start-search", &["<Control>f"]);
+    app.set_accels_for_action("app.start-search", &["<Control><Shift>f"]);
 }
 
 /// The searchbar: live filtering with parse errors surfaced, Escape

@@ -2,23 +2,38 @@
 
 Newest first.
 
-## Unreleased
+## v0.3.0 (2026-10-13)
 
-- Outline behavior: folding (gutter markers, click to toggle,
-  invisible-tag hiding with copy/cut leak protection and caret
-  guards, fold state persisted to a content-hash-keyed sidecar),
-  smart enter, Tab/Shift-Tab indent, backspace-outdent, duplicate,
-  group, branch moves, paste depth-shifting, and Ctrl+D done
-  toggling - all engine operations headless-tested, all verified
-  live on the desktop.
-- Filter and sidebar UI: a searchbar running the full query
-  language over the document (parse errors styled in place,
-  Escape clears), results showing matches plus ancestor chains
-  with dimmed markers on partially shown ancestors, a sidebar
-  with Home, nested projects, saved searches (seeded config file
-  in ~/.config/docket/), and tags with their distinct values -
-  each row click applying its filter or scope. Archive Done moves
-  topmost done items into a find-or-created Archive: project.
+- Outline behavior: folding (gutter markers, click to toggle, fold
+  state persisted to a content-hash-keyed sidecar), smart enter
+  with the spec's enter semantics (a project continues with a
+  child task, an empty item exits the list), Tab/Shift-Tab indent,
+  backspace-outdent, duplicate, group, branch moves, paste
+  depth-shifting, Ctrl+D done toggling, and Archive Done on
+  Ctrl+Shift+A, which indents its children under the archive.
+- Filter and sidebar: a searchbar (Ctrl+Shift+F) running the full
+  query language live over the document (parse errors surface as
+  the empty result with the error style, Escape clears), results
+  showing matches plus their ancestor chains with dimmed fold
+  handles, inline tag completion in the searchbar drawn from the
+  document census, and a sidebar with Home, nested projects (a
+  project click scopes the search), saved searches seeded in
+  ~/.config/docket/, and tags with their distinct values behind
+  working include/exclude lists.
+- The audit wave: folding content can no longer drop from the file
+  (the save paths always write the canonical text), keyboard edits
+  autosave immediately instead of on the next keystroke, paste
+  inserts exactly once and pasting at the document end leaves no
+  trailing newline, copy and cut stop the default handlers so
+  folded text cannot leak, the done strikethrough covers content
+  only, notes are italic, the editor holds keyboard focus from
+  launch so the keymap works before the first click, and the query
+  case table runs against a frozen reference instant.
+- Packaging: the real application icon (the clipboard mark in
+  Kanagawa Dragon, with the hicolor SVG and PNG ladder), a Flatpak
+  manifest on the GNOME 50 runtime building offline against
+  vendored cargo sources, and a tag-gated release workflow that
+  attaches the installed-prefix artifact.
 
 ## v0.2.0 (2026-10-12)
 

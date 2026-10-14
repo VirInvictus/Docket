@@ -36,15 +36,18 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="1.0.0" date="2026-10-13">
+    <release version="0.3.0" date="2026-10-13">
       <description>
-        <p>The faithful editor. Outline behavior: folding with
-        persisted fold state, smart enter, indent and moves, done
-        toggling, paste re-parsing, and Archive Done. Live filtering
-        with the full query language from the searchbar (Ctrl+F),
-        a sidebar of projects, saved searches, and tags, inline tag
-        completion, and the real application icon with a Flatpak
-        manifest on the GNOME 50 runtime.</p>
+        <p>Outline and filter: folding with persisted fold state,
+        smart enter with the reference enter semantics, indent and
+        moves, done toggling, paste re-parsing, and Archive Done.
+        Live filtering with the full query language from the
+        searchbar, a sidebar of projects, saved searches, and tags
+        with working include/exclude lists, and inline tag
+        completion. The audit wave: folding can no longer drop
+        content from the file, keyboard edits autosave immediately,
+        paste and clipboard corrections, content-only done
+        strikethrough, and italic notes.</p>
       </description>
     </release>
     <release version="0.2.0" date="2026-10-12">

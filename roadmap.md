@@ -163,18 +163,47 @@ fixture, query, and expected item ids as data.
 - [ ] Tag completion in the editor (the searchbar half shipped:
       inline completion from the document census)
 
-## Phase 8: packaging and release (1.0)
+## Phase 8: packaging and the audit pass
 
-- [ ] Real app icon replacing the placeholder logo
-- [ ] Flatpak manifest on the GNOME 50 runtime
-- [ ] Release job gated on tags
-- [ ] 1.0 pass: spec-compliance review over the whole diff,
-      patchnotes, tagged release
+- [x] Real app icon replacing the placeholder logo
+- [x] Flatpak manifest on the GNOME 50 runtime
+- [x] Release job gated on tags
+- [x] The audit pass: spec-compliance review and doc-drift audit
+      over the whole tree, every finding verified before acting;
+      the defects fixed (folded content could drop from the file
+      on save, keyboard edits deferred their autosave, paste
+      inserted twice, copy could leak folded text, the sidebar's
+      project scope and the tag exclude list were dead state,
+      Archive Done had no key, presentation and parse errors,
+      enter semantics, clock-bound tests); the spec amended where
+      the code was already reference-correct; the release is 0.3.0
 
-## Phase 9 and later (post-1.0 candidates, unsequenced)
+## Phase 9: the parity core (the 1.0 gate)
 
-- [ ] Command palette: Go to Anything, command palette, fuzzy
-      matching with highlighted matches
+The 1.0 gate is 1:1 parity with the TaskPaper 3 editing core:
+fold commands, settings, editor completion and tag clicks, the
+structural editing set, and a discoverable command surface. In-text
+find and link recognition stay out (the filter searchbar is the
+search surface; Ctrl+F stays reserved).
+
+- [ ] Fold keyboard cluster: expand/collapse with the Completely
+      and By Level variants (the spec's fold commands)
+- [ ] Settings model and the completion-date stamp preference
+- [ ] Tag completion in the editor (the searchbar half shipped)
+- [ ] Tag click filtering in the editor text
+- [ ] Structural editing: item-only moves, Delete Items, Select
+      Branch, Format As type conversion
+- [ ] Focus keys: Focus In/Out (Ctrl+Alt+Left/Right) and Go Home
+      (Ctrl+Shift+H)
+- [ ] New-list action and a menu surface for the command set
+- [ ] 1.0 pass: spec-compliance review, patchnotes, tagged release
+
+## Phase 10 and later (post-1.0 candidates, unsequenced)
+
+- [ ] Command palette: Go to Anything, Move to Project, Tag With,
+      date palettes; fuzzy matching with highlighted matches
+- [ ] Item drag and drop, undo grouping beyond the buffer's own
+      undo
 - [ ] User stylesheets: a CSS-subset theming system over the
       editor's element model
 - [ ] Multiple windows and tabs per document
@@ -183,3 +212,4 @@ fixture, query, and expected item ids as data.
 - [ ] Print support and a print stylesheet
 - [ ] PlainTasks-flavored read compatibility (box bullets, spaced
       `@done (date)`, `@started` / `@lasted` conventions)
+- [ ] Link recognition (URL, file, email; click to open)
