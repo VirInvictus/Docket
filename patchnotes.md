@@ -2,6 +2,41 @@
 
 Newest first.
 
+## v1.0.0 (2026-10-13)
+
+- The fold command cluster: Expand and Collapse Items with their
+  Completely variants and the All By Level pair, keyed to the
+  reference semantics. The Items commands act on the branches
+  owning the selection with a leaf fallback to the nearest foldable
+  ancestor (Collapse parks the caret there), Completely reaches
+  whole subtrees, and By Level derives one document-wide level from
+  the current folds. The digit chords match the hardware key, so
+  they survive Shift turning the digits into punctuation.
+- Structural editing: item-only moves past the previous or next row
+  at their level (Move Branch keeps Ctrl+Alt+Shift+arrows and
+  carries whole subtrees), Delete Items (a collapsed row's hidden
+  descendants go with it, visible children stay and re-parent),
+  Select Branch, and Format As project/task/note with the
+  reference's text transformations: the colon drops before the
+  trailing tag run and returns in front of it, the marker goes, and
+  converting to the current type is a no-op.
+- Focus: Focus In zooms to the caret's project, Focus Out pops to
+  the parent project, Go Home returns, and a sidebar project click
+  focuses the same way. Searches evaluate within the focus, and the
+  focus is stored by content hash so edits above it cannot strand
+  it.
+- Tag completion in the editor: a completion provider proposing the
+  document census as you type a tag, replacing the typed partial on
+  activation. Clicking a tag or its value in editor text filters by
+  it, like the sidebar.
+- Settings and the done stamp: preferences live in
+  ~/.config/docket/preferences.taskpaper; the completion-date
+  preference (off by default) makes both done toggles stamp
+  YYYY-MM-DD.
+- The command surface: a headerbar menu grouping the list, item,
+  outline, and search commands with accelerators, and New list
+  opening a fresh window.
+
 ## v0.3.0 (2026-10-13)
 
 - Outline behavior: folding (gutter markers, click to toggle, fold

@@ -15,6 +15,8 @@ pub struct EditResult {
     pub caret: usize,
 }
 
+use crate::item::ItemKind;
+
 struct Lines {
     chars: Vec<char>,
     /// Char index where each line starts, plus a one-past-end sentinel.
@@ -459,6 +461,171 @@ pub fn prepare_paste(clipboard: &str, target_depth: i64) -> String {
 /// inside their topmost ancestor), and move their whole subtrees to
 /// the top of the archive project, structure preserved. Returns the
 /// new text and the archive project's line index.
+/// The byte offset where an item line's trailing tag run starts
+/// (the line's body length, tabs included, tags excluded). The run
+/// is the whitespace-joined tag sequence ending the line.
+fn trailing_run_start(line: &str) -> usize {
+    let all = crate::tags::scan(line);
+    let Some(last) = all.last() else {
+        return line.len();
+    };
+    if !line[last.end..].chars().all(char::is_whitespace) {
+        return line.len();
+    }
+    let mut cut = last.start;
+    for pair in all.windows(2).rev() {
+        let (prev, cur) = (&pair[0], &pair[1]);
+        if line[prev.end..cur.start].chars().all(char::is_whitespace) {
+            cut = prev.start;
+        } else {
+            break;
+        }
+    }
+    cut
+}
+
+/// Format As: convert the lines `first..=last` to `target` per the
+/// reference transformation. The old type's syntax goes, the new
+/// one lands, and the trailing tag run survives at the end: to a
+/// task the colon drops and the marker is prepended; to a project
+/// the marker drops and the colon lands before the tags; to a note
+/// both go. Converting to the current type is a no-op; children and
+/// indentation are untouched.
+pub fn format_items(text: &str, first: usize, last: usize, target: ItemKind) -> Option<String> {
+    let mut lines = Lines::new(text);
+    if first > last || last >= lines.line_count() {
+        return None;
+    }
+    let mut changed = false;
+    for line in first..=last {
+        let (s, e) = lines.range(line);
+        let line_chars: String = lines.chars[s..e].iter().collect();
+        let indent_n = line_chars.chars().take_while(|&c| c == '\t').count();
+        let indent = &line_chars[..indent_n];
+        let body_all = &line_chars[indent_n..];
+        let cut = trailing_run_start(body_all);
+        let body = body_all[..cut].trim_end();
+        let run = &body_all[cut..];
+        let is_task = body.starts_with("- ") || body.starts_with("+ ") || body.starts_with("* ");
+        let is_project = !is_task && body.ends_with(':');
+        let new_body = match target {
+            ItemKind::Task => {
+                if is_task {
+                    None
+                } else {
+                    Some(format!("- {}", body.strip_suffix(':').unwrap_or(body)))
+                }
+            }
+            ItemKind::Project => {
+                if is_project {
+                    None
+                } else {
+                    let stripped = body
+                        .strip_prefix("- ")
+                        .or_else(|| body.strip_prefix("+ "))
+                        .or_else(|| body.strip_prefix("* "))
+                        .unwrap_or(body);
+                    Some(format!("{stripped}:"))
+                }
+            }
+            ItemKind::Note => {
+                if !is_task && !is_project {
+                    None
+                } else {
+                    let stripped = body
+                        .strip_prefix("- ")
+                        .or_else(|| body.strip_prefix("+ "))
+                        .or_else(|| body.strip_prefix("* "))
+                        .unwrap_or(body);
+                    Some(stripped.strip_suffix(':').unwrap_or(stripped).to_string())
+                }
+            }
+        };
+        let Some(new_body) = new_body else {
+            continue;
+        };
+        changed = true;
+        let joined = if run.is_empty() {
+            format!("{indent}{new_body}")
+        } else {
+            format!("{indent}{new_body} {run}")
+        };
+        let new_chars: Vec<char> = joined.chars().collect();
+        let width = e - s;
+        lines.chars.splice(s..e, new_chars);
+        let delta = joined.chars().count() as i64 - width as i64;
+        if delta != 0 {
+            for st in lines.starts.iter_mut().skip(line + 1) {
+                *st = (*st as i64 + delta) as usize;
+            }
+        }
+    }
+    if changed { Some(lines.join()) } else { None }
+}
+
+/// Delete the item lines `first..=last` exactly: no blank-line
+/// fixups, and any children keep their deeper indentation, which
+/// re-parents them naturally. The caret lands on the line that now
+/// occupies the range's position.
+pub fn delete_items(text: &str, first: usize, last: usize) -> Option<(String, usize)> {
+    let lines: Vec<&str> = text.split('\n').collect();
+    if first > last || last >= lines.len() {
+        return None;
+    }
+    let mut out: Vec<&str> = Vec::new();
+    for (i, l) in lines.iter().enumerate() {
+        if i < first || i > last {
+            out.push(l);
+        }
+    }
+    let caret = first.min(out.len().saturating_sub(1));
+    Some((out.join("\n"), caret))
+}
+
+/// Move the item lines `first..=last` one displayed row at their
+/// level: down past the next row at the first line's depth (landing
+/// after its whole subtree), or up before the previous row's branch.
+/// Deeper lines between are the block's own children and do not
+/// stop the search. None at the document edges.
+pub fn move_items(text: &str, first: usize, last: usize, down: bool) -> Option<String> {
+    let lines = Lines::new(text);
+    if first > last || last >= lines.line_count() {
+        return None;
+    }
+    let depth = lines.depth(first);
+    if down {
+        let mut i = last + 1;
+        while i < lines.line_count() && lines.depth(i) > depth {
+            i += 1;
+        }
+        if i >= lines.line_count() {
+            return None;
+        }
+        // The trailing newline artifact is not a row.
+        {
+            let (s, e) = lines.range(i);
+            if i == lines.line_count() - 1 && s == e {
+                return None;
+            }
+        }
+        let insert_before = subtree_end(text, i) + 1;
+        move_block(text, first, last, insert_before)
+    } else {
+        let mut i = first;
+        loop {
+            if i == 0 {
+                return None;
+            }
+            i -= 1;
+            if lines.depth(i) <= depth {
+                break;
+            }
+        }
+        let insert_before = branch_start(text, i);
+        move_block(text, first, last, insert_before)
+    }
+}
+
 pub fn archive_done(text: &str) -> Option<(String, usize)> {
     let lines: Vec<&str> = text.split('\n').collect();
     let has_done = |l: &str| crate::tags::scan(l).iter().any(|t| t.name == "done");
@@ -713,5 +880,70 @@ mod tests {
         assert_eq!(subtree_end(nested, 1), 2);
         assert_eq!(subtree_end(nested, 2), 2);
         assert_eq!(branch_start(nested, 2), 0);
+    }
+
+    #[test]
+    fn format_as_task_drops_the_colon_keeps_the_tags() {
+        let text = "Errands:\nErrands: @home\n- done @done\n";
+        let out = format_items(text, 0, 1, ItemKind::Task).unwrap();
+        assert!(out.contains("- Errands\n"));
+        assert!(out.contains("- Errands @home\n"));
+        // Already a task: untouched.
+        assert!(out.contains("- done @done\n"));
+    }
+
+    #[test]
+    fn format_as_project_lands_the_colon_before_the_tags() {
+        let text = "- ship release @p(1)\npack bags\n* starred\n";
+        let out = format_items(text, 0, 2, ItemKind::Project).unwrap();
+        assert!(out.contains("ship release: @p(1)\n"));
+        assert!(out.contains("pack bags:\n"));
+        assert!(out.contains("starred:\n"));
+    }
+
+    #[test]
+    fn format_as_note_strips_marker_and_colon() {
+        let text = "Errands:\n- ship release @p(1)\n";
+        let out = format_items(text, 0, 1, ItemKind::Note).unwrap();
+        assert!(out.contains("Errands\n"));
+        assert!(out.contains("ship release @p(1)\n"));
+    }
+
+    #[test]
+    fn format_as_leaves_indent_and_children_alone() {
+        let text = "Home:\n\tErrands:\n\t\t- milk\n";
+        let out = format_items(text, 1, 1, ItemKind::Task).unwrap();
+        assert_eq!(out, "Home:\n\t- Errands\n\t\t- milk\n");
+    }
+
+    #[test]
+    fn delete_items_removes_exactly_the_range() {
+        let text = "P:\n\t- a\n\t- b\n\t- c\nNote\n";
+        // The surviving children keep their depth and re-parent.
+        let (out, caret) = delete_items(text, 1, 1).unwrap();
+        assert_eq!(out, "P:\n\t- b\n\t- c\nNote\n");
+        assert_eq!(caret, 1);
+        let (out, caret) = delete_items(text, 1, 2).unwrap();
+        assert_eq!(out, "P:\n\t- c\nNote\n");
+        assert_eq!(caret, 1);
+    }
+
+    #[test]
+    fn move_items_passes_the_next_row_at_their_level() {
+        let text = "- a\n\t- a child\n- b\n- c\n";
+        // "a" (line 0) moves down past "b": the child stays behind
+        // and re-parents under b.
+        let out = move_items(text, 0, 0, true).unwrap();
+        assert_eq!(out, "\t- a child\n- b\n- a\n- c\n");
+        // "a" moves back up before b's branch start.
+        let out = move_items(&out, 2, 2, false).unwrap();
+        assert_eq!(out, "\t- a child\n- a\n- b\n- c\n");
+    }
+
+    #[test]
+    fn move_items_is_none_at_the_edges() {
+        let text = "- a\n- b\n";
+        assert!(move_items(text, 0, 0, false).is_none());
+        assert!(move_items(text, 1, 1, true).is_none());
     }
 }

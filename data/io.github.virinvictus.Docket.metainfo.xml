@@ -36,6 +36,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.0.0" date="2026-10-13">
+      <description>
+        <p>The parity core. The fold command cluster (Expand and
+        Collapse with Completely variants and the By Level pair),
+        structural editing (item-only moves, Delete Items, Select
+        Branch, Format As), focus with Focus In/Out and Go Home,
+        tag completion in the editor, tag-click filtering in text,
+        the done-stamp preference behind a settings file, and the
+        command surface in a headerbar menu with a New list
+        action.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-13">
       <description>
         <p>Outline and filter: folding with persisted fold state,

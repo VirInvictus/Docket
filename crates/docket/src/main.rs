@@ -3,6 +3,7 @@
 //! external change reloads the view because the view never holds
 //! unsaved state.
 
+mod completion;
 mod config;
 mod fold;
 mod sidebar;
@@ -42,9 +43,10 @@ struct Doc {
     folds: Rc<fold::FoldEngine>,
     renderer: fold::FoldGutterRenderer,
     /// The active filter (parsed query plus its source text) and the
-    /// focus scope a sidebar project click installed.
+    /// focused project, stored as the project line's content hash so
+    /// edits above it do not strand the scope.
     filter: Rc<RefCell<Option<(docket_core::query::Query, String)>>>,
-    scope: Rc<RefCell<Option<usize>>>,
+    focus: Rc<RefCell<Option<u64>>>,
     search_entry: gtk4::SearchEntry,
     search_bar: gtk4::SearchBar,
     sidebar: sidebar::Sidebar,
@@ -157,7 +159,7 @@ fn activate(app: &Application, initial: Option<&Path>) {
 
     let filter: Rc<RefCell<Option<(docket_core::query::Query, String)>>> =
         Rc::new(RefCell::new(None));
-    let scope: Rc<RefCell<Option<usize>>> = Rc::new(RefCell::new(None));
+    let focus: Rc<RefCell<Option<u64>>> = Rc::new(RefCell::new(None));
 
     let doc = Rc::new(Doc {
         window: window.clone(),
@@ -169,7 +171,7 @@ fn activate(app: &Application, initial: Option<&Path>) {
         folds,
         renderer,
         filter,
-        scope,
+        focus,
         search_entry: search_entry.clone(),
         search_bar: search_bar.clone(),
         sidebar: sidebar.clone(),
@@ -182,6 +184,37 @@ fn activate(app: &Application, initial: Option<&Path>) {
     wire_search(&doc, &search_entry, &search_bar);
     wire_sidebar(&doc, &sidebar);
     wire_actions(app, &window, &doc);
+
+    // The headerbar: title and the command menu (the Quire shape).
+    let header = gtk4::HeaderBar::new();
+    let title = gtk4::Label::new(Some("Docket"));
+    header.set_title_widget(Some(&title));
+    header.set_show_title_buttons(true);
+    let menu_button = gtk4::MenuButton::new();
+    menu_button.set_icon_name("open-menu-symbolic");
+    menu_button.set_tooltip_text(Some("Menu"));
+    menu_button.set_menu_model(Some(&build_menu()));
+    header.pack_end(&menu_button);
+    window.set_titlebar(Some(&header));
+
+    // Tag completion in the editor: proposals come live from the
+    // document census, so edits never leave a stale list.
+    {
+        let doc_for_tags = Rc::downgrade(&doc);
+        completion::install(
+            &doc.view,
+            Rc::new(move || {
+                let Some(doc) = doc_for_tags.upgrade() else {
+                    return Vec::new();
+                };
+                let text = buffer_text(&doc).to_string();
+                let (_, exclude) = config::tag_lists();
+                docket_core::census::tag_census(&text, &exclude)
+                    .into_keys()
+                    .collect()
+            }),
+        );
+    }
 
     match initial {
         Some(path) => load_file(&doc, path),
@@ -357,14 +390,23 @@ fn wire_editing(doc: &Rc<Doc>) {
             // character).
             let on_dash = is_task && iter.line_offset() == content_off as i32;
             if on_dash {
-                let stamp = None; // the stamp preference arrives with settings
+                let stamp = done_stamp();
                 if let Some(new_text) = docket_core::edit::toggle_done(
                     &buffer_text(&doc_for_click),
                     line as usize,
-                    stamp,
+                    stamp.as_deref(),
                 ) {
                     replace_document(&doc_for_click, new_text);
                 }
+                gesture.set_state(gtk4::EventSequenceState::Claimed);
+            } else if let Some(query) =
+                tag_query_at(&content, iter.line_offset() as usize, content_off)
+            {
+                // A click on a @tag or its value filters by it, the
+                // reference's text-click behavior: the field reveals
+                // with the query but keeps the editor's focus.
+                doc_for_click.search_bar.set_search_mode(true);
+                doc_for_click.search_entry.set_text(&query);
                 gesture.set_state(gtk4::EventSequenceState::Claimed);
             }
         }
@@ -379,13 +421,12 @@ fn wire_editing(doc: &Rc<Doc>) {
     key.connect_key_pressed(glib::clone!(
         #[strong]
         doc_for_key,
-        move |_, keyval, _code, state| {
+        move |_, keyval, code, state| {
             let ctrl = state.contains(gdk::ModifierType::CONTROL_MASK);
             let alt = state.contains(gdk::ModifierType::ALT_MASK);
             let shift = state.contains(gdk::ModifierType::SHIFT_MASK);
             let text = buffer_text(&doc_for_key).to_string();
             let caret = doc_for_key.buffer.cursor_position().max(0) as usize;
-
             match keyval {
                 Key::Return if !shift => {
                     let anchor = anchor_depth(&doc_for_key, caret);
@@ -421,9 +462,12 @@ fn wire_editing(doc: &Rc<Doc>) {
                 }
                 Key::d | Key::D if ctrl && !alt && !shift => {
                     let (a, b) = selection_lines(&doc_for_key);
+                    let stamp = done_stamp();
                     let mut new_text = text.clone();
                     for line in (a..=b).rev() {
-                        if let Some(t) = docket_core::edit::toggle_done(&new_text, line, None) {
+                        if let Some(t) =
+                            docket_core::edit::toggle_done(&new_text, line, stamp.as_deref())
+                        {
                             new_text = t;
                         }
                     }
@@ -433,31 +477,94 @@ fn wire_editing(doc: &Rc<Doc>) {
                     return glib::Propagation::Stop;
                 }
                 Key::Up | Key::Down if ctrl && alt => {
+                    // Move passes the previous/next row at the
+                    // selection's level; Move Branch (Shift) carries
+                    // whole subtrees, the reference cluster's split.
                     let down = keyval == Key::Down;
-                    let branch = true; // branches carry their subtrees
-                    if move_selection(&doc_for_key, &text, down, branch) {
-                        return glib::Propagation::Stop;
+                    if shift {
+                        if move_selection(&doc_for_key, &text, down, true) {
+                            return glib::Propagation::Stop;
+                        }
+                    } else {
+                        let (a, b) = selection_lines(&doc_for_key);
+                        if let Some(new_text) = docket_core::edit::move_items(&text, a, b, down) {
+                            replace_document(&doc_for_key, new_text);
+                            return glib::Propagation::Stop;
+                        }
                     }
                     return glib::Propagation::Proceed;
                 }
                 Key::d | Key::D if ctrl && shift => {
-                    let (a, b) = selection_lines(&doc_for_key);
-                    if let Some(new_text) = docket_core::edit::duplicate_block(&text, a, b) {
-                        replace_document(&doc_for_key, new_text);
-                    }
+                    cmd_duplicate(&doc_for_key);
                     return glib::Propagation::Stop;
                 }
                 Key::g | Key::G if ctrl && alt => {
-                    let (a, b) = selection_lines(&doc_for_key);
-                    if let Some((new_text, _parent)) = docket_core::edit::group_lines(&text, a, b) {
-                        replace_document(&doc_for_key, new_text);
-                        return glib::Propagation::Stop;
+                    cmd_group(&doc_for_key);
+                    return glib::Propagation::Stop;
+                }
+                Key::Right if ctrl && alt && !shift => {
+                    // Focus In: the caret's nearest enclosing project.
+                    let caret_line = current_line(&doc_for_key, caret);
+                    if let Some(p) = docket_core::fold::enclosing_project(&text, caret_line) {
+                        *doc_for_key.focus.borrow_mut() =
+                            Some(fold::content_hash(line_content(&text, p)));
+                        apply_focus(&doc_for_key);
                     }
+                    return glib::Propagation::Stop;
+                }
+                Key::Left if ctrl && alt && !shift => {
+                    // Focus Out: pop to the parent project, or home.
+                    let scoped = focused_line(&doc_for_key);
+                    let parent = scoped.and_then(|l| docket_core::fold::parent_project(&text, l));
+                    *doc_for_key.focus.borrow_mut() =
+                        parent.map(|p| fold::content_hash(line_content(&text, p)));
+                    apply_focus(&doc_for_key);
+                    return glib::Propagation::Stop;
+                }
+                Key::h | Key::H if ctrl && shift && !alt => {
+                    // Go Home: drop the focus, keep any search.
+                    cmd_go_home(&doc_for_key);
+                    return glib::Propagation::Stop;
+                }
+                // The fold cluster's digit chords match the hardware
+                // keycode (GDK is xkb-based: evdev + 8, so the 0 key
+                // is 19 and the 9 key is 18): with Shift held the
+                // keyval turns into punctuation (Ctrl+Shift+0 types
+                // ')'), which would never match a keyval arm.
+                _ if ctrl && !alt && !shift && code == 19 => {
+                    cmd_fold(&doc_for_key, FoldCmd::ExpandItems);
+                    return glib::Propagation::Stop;
+                }
+                _ if ctrl && !alt && !shift && code == 18 => {
+                    cmd_fold(&doc_for_key, FoldCmd::CollapseItems);
+                    return glib::Propagation::Stop;
+                }
+                _ if ctrl && alt && !shift && code == 19 => {
+                    cmd_fold(&doc_for_key, FoldCmd::ExpandCompletely);
+                    return glib::Propagation::Stop;
+                }
+                _ if ctrl && alt && !shift && code == 18 => {
+                    cmd_fold(&doc_for_key, FoldCmd::CollapseCompletely);
+                    return glib::Propagation::Stop;
+                }
+                _ if ctrl && shift && !alt && code == 19 => {
+                    cmd_fold(&doc_for_key, FoldCmd::ExpandLevel);
+                    return glib::Propagation::Stop;
+                }
+                _ if ctrl && shift && !alt && code == 18 => {
+                    cmd_fold(&doc_for_key, FoldCmd::CollapseLevel);
+                    return glib::Propagation::Stop;
+                }
+                _ if ctrl && alt && shift && code == 19 => {
+                    cmd_fold(&doc_for_key, FoldCmd::ExpandAllCompletely);
+                    return glib::Propagation::Stop;
+                }
+                _ if ctrl && alt && shift && code == 18 => {
+                    cmd_fold(&doc_for_key, FoldCmd::CollapseAllCompletely);
+                    return glib::Propagation::Stop;
                 }
                 Key::a | Key::A if ctrl && shift && !alt => {
-                    if let Some((new_text, _caret)) = docket_core::edit::archive_done(&text) {
-                        replace_document(&doc_for_key, new_text);
-                    }
+                    cmd_archive(&doc_for_key);
                     return glib::Propagation::Stop;
                 }
                 _ => {}
@@ -539,6 +646,297 @@ fn wire_editing(doc: &Rc<Doc>) {
             );
         }
     ));
+}
+
+/// The filter query for a click at char offset `off` within a line
+/// whose content starts at `content_off`: the tag's name when the
+/// click lands on `@name`, or the tag plus value when it lands on
+/// the parenthesized value. None off-tag.
+fn tag_query_at(content: &str, off: usize, content_off: usize) -> Option<String> {
+    if off < content_off {
+        return None;
+    }
+    let rel = off - content_off;
+    let byte = content.char_indices().nth(rel).map(|(i, _)| i)?;
+    for t in docket_core::tags::scan(content) {
+        if byte < t.start || byte > t.end {
+            continue;
+        }
+        let name_end = t.start + 1 + t.name.len();
+        let bare = format!("@{}", t.name);
+        if byte <= name_end {
+            return Some(bare);
+        }
+        return match t.value {
+            Some(v) if !v.is_empty() => Some(format!("{bare} contains[l] \"{v}\"")),
+            _ => Some(bare),
+        };
+    }
+    None
+}
+
+/// Apply a fold command: fold the first list's header lines and
+/// unfold the second's (the By Level commands set both sides),
+/// persist to the sidecar, refresh.
+fn apply_fold_command(doc: &Rc<Doc>, fold: &[usize], unfold: &[usize]) {
+    let text = buffer_text(doc).to_string();
+    let hashes = |ls: &[usize]| {
+        ls.iter()
+            .map(|&l| fold::content_hash(line_content(&text, l)))
+            .collect::<Vec<u64>>()
+    };
+    doc.folds.fold_lines(&hashes(fold));
+    doc.folds.unfold_lines(&hashes(unfold));
+    let key = fold::hash_hex(fold::content_hash(&text));
+    sidecar::store(&key, &doc.folds.folded_hashes());
+    refresh_folds(doc);
+}
+
+/// The fold keyboard cluster, mirroring the reference's Outline
+/// menu: the four Items commands act on the branches owning the
+/// selection (topmost selected items with children), with the
+/// leaf fallback to the nearest foldable ancestor; the Completely
+/// variants extend into whole subtrees; the All commands and the
+/// By Level pair are document-scoped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FoldCmd {
+    ExpandItems,
+    ExpandCompletely,
+    CollapseItems,
+    CollapseCompletely,
+    ExpandLevel,
+    CollapseLevel,
+    ExpandAllCompletely,
+    CollapseAllCompletely,
+}
+
+/// The topmost selected lines: a walk that skips selected subtrees.
+fn topmost_selected(text: &str, a: usize, b: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut i = a;
+    while i <= b {
+        out.push(i);
+        i = docket_core::edit::subtree_end(text, i) + 1;
+    }
+    out
+}
+
+/// The nearest foldable ancestor above `line` (an item with
+/// children whose subtree covers it).
+fn nearest_foldable_ancestor(text: &str, line: usize) -> Option<usize> {
+    let headers = docket_core::fold::header_lines(text);
+    (0..line).rev().find(|&k| {
+        docket_core::edit::subtree_end(text, k) >= line && headers.iter().any(|&(hl, _)| hl == k)
+    })
+}
+
+fn cmd_fold(doc: &Rc<Doc>, cmd: FoldCmd) {
+    let text = buffer_text(doc).to_string();
+    let headers = docket_core::fold::header_lines(&text);
+    let is_foldable = |l: usize| headers.iter().any(|&(hl, _)| hl == l);
+
+    // (fold these, unfold these, park the caret at fold[0]) — the
+    // park happens only on the leaf fallback of a Collapse, where
+    // the reference relocates the caret to the collapsed ancestor.
+    let (fold_set, unfold_set, park) = match cmd {
+        FoldCmd::ExpandItems | FoldCmd::CollapseItems => {
+            let (a, b) = selection_lines(doc);
+            let owners: Vec<usize> = topmost_selected(&text, a, b)
+                .into_iter()
+                .filter(|&l| is_foldable(l))
+                .collect();
+            let (collapse, park) = match owners.first() {
+                Some(_) => (true, false),
+                None => match nearest_foldable_ancestor(&text, a) {
+                    Some(_) => (true, true),
+                    None => return,
+                },
+            };
+            let target = owners
+                .first()
+                .copied()
+                .or_else(|| nearest_foldable_ancestor(&text, a));
+            match target {
+                Some(t) if collapse => (vec![t], vec![], park),
+                Some(t) => (vec![], vec![t], false),
+                None => return,
+            }
+        }
+        FoldCmd::ExpandCompletely | FoldCmd::CollapseCompletely => {
+            let (a, b) = selection_lines(doc);
+            let owners: Vec<usize> = topmost_selected(&text, a, b)
+                .into_iter()
+                .filter(|&l| is_foldable(l))
+                .collect();
+            let targets = match owners.first() {
+                Some(&first) => docket_core::fold::subtree_header_lines(&text, first),
+                None => match nearest_foldable_ancestor(&text, a) {
+                    Some(a_line) => docket_core::fold::subtree_header_lines(&text, a_line),
+                    None => return,
+                },
+            };
+            match cmd {
+                FoldCmd::CollapseCompletely => (targets, vec![], false),
+                _ => (vec![], targets, false),
+            }
+        }
+        FoldCmd::ExpandLevel | FoldCmd::CollapseLevel => {
+            // One global level, derived document-wide: the deepest
+            // currently folded header, or the deepest header when
+            // nothing is folded. Expand reveals one more level,
+            // Collapse one fewer; headers at or beyond the level
+            // fold.
+            let mut level = headers.iter().map(|&(_, d)| d).max().unwrap_or(0);
+            for hash in doc.folds.folded_hashes() {
+                if let Some(l) = fold_hash_line(&text, hash)
+                    && let Some(&(_, d)) = headers.iter().find(|&&(hl, _)| hl == l)
+                {
+                    level = level.max(d);
+                }
+            }
+            let target = match cmd {
+                FoldCmd::ExpandLevel => level + 1,
+                _ => level.saturating_sub(1),
+            };
+            let at_or_beyond: Vec<usize> = headers
+                .iter()
+                .filter(|&&(_, d)| d >= target)
+                .map(|&(l, _)| l)
+                .collect();
+            let below: Vec<usize> = headers
+                .iter()
+                .filter(|&&(_, d)| d < target)
+                .map(|&(l, _)| l)
+                .collect();
+            // Both directions share the polarity: headers at or
+            // beyond the target fold, headers below it unfold. Only
+            // the target differs (level + 1 vs level - 1).
+            (at_or_beyond, below, false)
+        }
+        FoldCmd::ExpandAllCompletely | FoldCmd::CollapseAllCompletely => {
+            let all = docket_core::fold::all_header_lines(&text);
+            match cmd {
+                FoldCmd::CollapseAllCompletely => (all, vec![], false),
+                _ => (vec![], all, false),
+            }
+        }
+    };
+    apply_fold_command(doc, &fold_set, &unfold_set);
+
+    if park && let Some(iter) = doc.buffer.iter_at_line(fold_set[0] as i32) {
+        let mut end = iter;
+        end.forward_to_line_end();
+        doc.buffer.place_cursor(&end);
+        doc.view.scroll_to_iter(&mut end, 0.0, true, 0.0, 0.0);
+    }
+}
+
+/// Resolve a fold hash back to its current line.
+fn fold_hash_line(text: &str, hash: u64) -> Option<usize> {
+    text.split('\n')
+        .enumerate()
+        .find(|(_, line)| fold::content_hash(line.trim_start_matches('\t')) == hash)
+        .map(|(i, _)| i)
+}
+
+fn cmd_archive(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    if let Some((new_text, _caret)) = docket_core::edit::archive_done(&text) {
+        replace_document(doc, new_text);
+    }
+}
+
+fn cmd_duplicate(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    let (a, b) = selection_lines(doc);
+    if let Some(new_text) = docket_core::edit::duplicate_block(&text, a, b) {
+        replace_document(doc, new_text);
+    }
+}
+
+fn cmd_group(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    let (a, b) = selection_lines(doc);
+    if let Some((new_text, _parent)) = docket_core::edit::group_lines(&text, a, b) {
+        replace_document(doc, new_text);
+    }
+}
+
+fn cmd_delete_items(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    let (a, mut b) = selection_lines(doc);
+    // A collapsed item's hidden descendants go with it.
+    if let Some(content) = text.split('\n').nth(b)
+        && doc
+            .folds
+            .is_folded_hash(fold::content_hash(content.trim_start_matches('\t')))
+    {
+        b = docket_core::edit::subtree_end(&text, b);
+    }
+    if let Some((new_text, caret_line)) = docket_core::edit::delete_items(&text, a, b) {
+        let caret = buffer_text(doc)
+            .split('\n')
+            .take(caret_line)
+            .map(|l| l.chars().count() + 1)
+            .sum::<usize>();
+        replace_document(doc, new_text);
+        let clamped = caret.min(doc.buffer.char_count() as usize);
+        doc.buffer
+            .place_cursor(&doc.buffer.iter_at_offset(clamped as i32));
+    }
+}
+
+fn cmd_select_branch(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    let (a, b) = selection_lines(doc);
+    let start = docket_core::edit::branch_start(&text, a);
+    let end = docket_core::edit::subtree_end(&text, b);
+    let Some(start_iter) = doc.buffer.iter_at_line(start as i32) else {
+        return;
+    };
+    // The selection ends at offset 0 of the next item, or at the
+    // last line's end at the buffer edge.
+    let end_iter = doc.buffer.iter_at_line(end as i32 + 1).unwrap_or_else(|| {
+        let mut it = doc.buffer.iter_at_line(end as i32).unwrap();
+        it.forward_to_line_end();
+        it
+    });
+    doc.buffer.select_range(&start_iter, &end_iter);
+}
+
+fn cmd_format(doc: &Rc<Doc>, kind: docket_core::ItemKind) {
+    let text = buffer_text(doc).to_string();
+    let (a, b) = selection_lines(doc);
+    if let Some(new_text) = docket_core::edit::format_items(&text, a, b, kind) {
+        replace_document(doc, new_text);
+    }
+}
+
+fn cmd_focus_in(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    let caret = doc.buffer.cursor_position().max(0) as usize;
+    let caret_line = current_line(doc, caret);
+    if let Some(p) = docket_core::fold::enclosing_project(&text, caret_line) {
+        *doc.focus.borrow_mut() = Some(fold::content_hash(line_content(&text, p)));
+        apply_focus(doc);
+    }
+}
+
+fn cmd_focus_out(doc: &Rc<Doc>) {
+    let text = buffer_text(doc).to_string();
+    let scoped = focused_line(doc);
+    let parent = scoped.and_then(|l| docket_core::fold::parent_project(&text, l));
+    *doc.focus.borrow_mut() = parent.map(|p| fold::content_hash(line_content(&text, p)));
+    apply_focus(doc);
+}
+
+fn cmd_go_home(doc: &Rc<Doc>) {
+    *doc.focus.borrow_mut() = None;
+    if doc.filter.borrow().is_some() {
+        apply_filter(doc);
+    } else {
+        refresh_folds(doc);
+    }
 }
 
 /// The depth of the next visible line after the caret's line, per
@@ -891,6 +1289,148 @@ fn wire_actions(app: &Application, window: &ApplicationWindow, doc: &Rc<Doc>) {
     ));
     app.add_action(&start_search);
     app.set_accels_for_action("app.start-search", &["<Control><Shift>f"]);
+
+    // File > New: a fresh single-document window is a fresh process
+    // (the app is NON_UNIQUE).
+    let new_list = gio::SimpleAction::new("new", None);
+    new_list.connect_activate(move |_, _| {
+        let Ok(exe) = std::env::current_exe() else {
+            return;
+        };
+        let _ = std::process::Command::new(exe).spawn();
+    });
+    app.add_action(&new_list);
+    app.set_accels_for_action("app.new", &["<Control>n"]);
+
+    // The rest of the command surface: same helpers the keymap
+    // calls, reachable from the menu.
+    let archive = gio::SimpleAction::new("archive-done", None);
+    archive.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_archive(&doc)
+    ));
+    app.add_action(&archive);
+    app.set_accels_for_action("app.archive-done", &["<Control><Shift>a"]);
+
+    let duplicate = gio::SimpleAction::new("duplicate", None);
+    duplicate.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_duplicate(&doc)
+    ));
+    app.add_action(&duplicate);
+    app.set_accels_for_action("app.duplicate", &["<Control><Shift>d"]);
+
+    let group = gio::SimpleAction::new("group", None);
+    group.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_group(&doc)
+    ));
+    app.add_action(&group);
+    app.set_accels_for_action("app.group", &["<Control><Alt>g"]);
+
+    let delete_items = gio::SimpleAction::new("delete-items", None);
+    delete_items.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_delete_items(&doc)
+    ));
+    app.add_action(&delete_items);
+    app.set_accels_for_action("app.delete-items", &["<Control><Alt><Shift>k"]);
+
+    let select_branch = gio::SimpleAction::new("select-branch", None);
+    select_branch.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_select_branch(&doc)
+    ));
+    app.add_action(&select_branch);
+    app.set_accels_for_action("app.select-branch", &["<Control><Shift>b"]);
+
+    for (name, kind) in [
+        ("format-project", docket_core::ItemKind::Project),
+        ("format-task", docket_core::ItemKind::Task),
+        ("format-note", docket_core::ItemKind::Note),
+    ] {
+        let action = gio::SimpleAction::new(name, None);
+        action.connect_activate(glib::clone!(
+            #[strong]
+            doc,
+            move |_, _| cmd_format(&doc, kind)
+        ));
+        app.add_action(&action);
+    }
+
+    let focus_in = gio::SimpleAction::new("focus-in", None);
+    focus_in.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_focus_in(&doc)
+    ));
+    app.add_action(&focus_in);
+    app.set_accels_for_action("app.focus-in", &["<Control><Alt>Right"]);
+
+    let focus_out = gio::SimpleAction::new("focus-out", None);
+    focus_out.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_focus_out(&doc)
+    ));
+    app.add_action(&focus_out);
+    app.set_accels_for_action("app.focus-out", &["<Control><Alt>Left"]);
+
+    let go_home = gio::SimpleAction::new("go-home", None);
+    go_home.connect_activate(glib::clone!(
+        #[strong]
+        doc,
+        move |_, _| cmd_go_home(&doc)
+    ));
+    app.add_action(&go_home);
+    app.set_accels_for_action("app.go-home", &["<Control><Shift>h"]);
+
+    for (name, cmd, accel) in [
+        ("expand-items", FoldCmd::ExpandItems, "<Control>0"),
+        (
+            "expand-completely",
+            FoldCmd::ExpandCompletely,
+            "<Control><Alt>0",
+        ),
+        ("collapse-items", FoldCmd::CollapseItems, "<Control>9"),
+        (
+            "collapse-completely",
+            FoldCmd::CollapseCompletely,
+            "<Control><Alt>9",
+        ),
+        ("expand-level", FoldCmd::ExpandLevel, "<Control><Shift>0"),
+        (
+            "collapse-level",
+            FoldCmd::CollapseLevel,
+            "<Control><Shift>9",
+        ),
+        (
+            "expand-all-completely",
+            FoldCmd::ExpandAllCompletely,
+            "<Control><Alt><Shift>0",
+        ),
+        (
+            "collapse-all-completely",
+            FoldCmd::CollapseAllCompletely,
+            "<Control><Alt><Shift>9",
+        ),
+    ] {
+        let action = gio::SimpleAction::new(name, None);
+        action.connect_activate(glib::clone!(
+            #[strong]
+            doc,
+            move |_, _| cmd_fold(&doc, cmd)
+        ));
+        app.add_action(&action);
+        if !accel.is_empty() {
+            app.set_accels_for_action(&format!("app.{name}"), &[accel]);
+        }
+    }
 }
 
 /// The searchbar: live filtering with parse errors surfaced, Escape
@@ -968,6 +1508,19 @@ fn wire_search(doc: &Rc<Doc>, entry: &gtk4::SearchEntry, bar: &gtk4::SearchBar) 
     ));
 }
 
+/// The completion-date stamp the done toggles apply: today's date
+/// in the reference minimal form when the preference is on.
+fn done_stamp() -> Option<String> {
+    if !config::stamp_done() {
+        return None;
+    }
+    let now = docket_core::dates::now();
+    let today = docket_core::dates::parse("today", now)
+        .map(|d| d.0)
+        .unwrap_or(now);
+    Some(docket_core::dates::format(today))
+}
+
 /// The completion proposal for the searchbar's current text: tag
 /// names from the document census, minus the excluded ones.
 fn tag_completion(doc: &Rc<Doc>, text: &str) -> Option<(usize, String)> {
@@ -981,16 +1534,56 @@ fn tag_completion(doc: &Rc<Doc>, text: &str) -> Option<(usize, String)> {
 
 /// Apply the active filter: matches plus their ancestor chains stay
 /// visible, everything else hides. The filter bypasses folds, per
-/// the reference, and evaluates within the sidebar's project scope
-/// when one is set.
+/// the reference, and evaluates within the focused project when one
+/// is set (the sidebar's project click or the focus keys).
 fn apply_filter(doc: &Rc<Doc>) {
     let Some((query, _)) = doc.filter.borrow().as_ref().map(|f| f.clone()) else {
         return;
     };
+    let scope = focused_line(doc);
+    apply_query(doc, &query, scope);
+}
+
+/// Recompute visibility after a focus change without a searchbar
+/// filter: the focused subtree stays, everything else hides. With
+/// no focus the document shows whole.
+fn apply_focus(doc: &Rc<Doc>) {
+    let scope = focused_line(doc);
+    match scope {
+        None => refresh_folds(doc),
+        Some(_) => match docket_core::query::Query::parse("//") {
+            Ok(all) => apply_query(doc, &all, scope),
+            Err(_) => refresh_folds(doc),
+        },
+    }
+}
+
+/// The focused project's current line, resolved from its stored
+/// content hash so edits above it do not strand the scope.
+fn focused_line(doc: &Rc<Doc>) -> Option<usize> {
+    let hash = (*doc.focus.borrow())?;
+    let text = buffer_text(doc);
+    text.split('\n')
+        .enumerate()
+        .find(|(_, line)| fold::content_hash(line.trim_start_matches('\t')) == hash)
+        .map(|(i, _)| i)
+}
+
+/// The item content of one line, tabs stripped.
+fn line_content(text: &str, line: usize) -> &str {
+    text.split('\n')
+        .nth(line)
+        .map(|l| l.trim_start_matches('\t'))
+        .unwrap_or("")
+}
+
+/// The shared visibility pass behind filtering and focus: matches
+/// plus their ancestor chains stay visible, everything else hides.
+fn apply_query(doc: &Rc<Doc>, query: &docket_core::query::Query, scope: Option<usize>) {
     let text = buffer_text(doc).to_string();
     let line_count = text.split('\n').count();
     let doc_for_run = docket_core::Document::load(&text);
-    let matches = query.run_scoped_at(&doc_for_run, *doc.scope.borrow(), docket_core::dates::now());
+    let matches = query.run_scoped_at(&doc_for_run, scope, docket_core::dates::now());
     let mut visible: HashSet<usize> = matches.iter().copied().collect();
     let mut dimmed: HashSet<u32> = HashSet::new();
     for &m in &matches {
@@ -1116,15 +1709,18 @@ fn wire_sidebar(doc: &Rc<Doc>, sidebar: &sidebar::Sidebar) {
         let bar = doc_cb.search_bar.clone();
         match kind {
             sidebar::RowKind::Home => {
-                *doc_cb.scope.borrow_mut() = None;
+                *doc_cb.focus.borrow_mut() = None;
                 *doc_cb.filter.borrow_mut() = None;
                 entry.set_text("");
                 bar.set_search_mode(false);
                 refresh_folds(&doc_cb);
             }
             sidebar::RowKind::Project { line } => {
-                *doc_cb.scope.borrow_mut() = Some(*line);
-                refresh_folds(&doc_cb);
+                // A project click focuses: the subtree stays,
+                // everything else hides (reference sidebar behavior).
+                let text = buffer_text(&doc_cb).to_string();
+                *doc_cb.focus.borrow_mut() = Some(fold::content_hash(line_content(&text, *line)));
+                apply_focus(&doc_cb);
             }
             sidebar::RowKind::Search { query } => {
                 bar.set_search_mode(true);
@@ -1145,4 +1741,65 @@ fn wire_sidebar(doc: &Rc<Doc>, sidebar: &sidebar::Sidebar) {
         }
     }));
     rebuild_sidebar(doc);
+}
+
+/// The hamburger menu: the command surface, grouped the way the
+/// reference groups its menus. Accelerators render from the app's
+/// registered accels.
+fn build_menu() -> gio::Menu {
+    let menu = gio::Menu::new();
+
+    let file = gio::Menu::new();
+    file.append(Some("New list"), Some("app.new"));
+    file.append(Some("Open"), Some("app.open"));
+    file.append(Some("Save list as"), Some("app.save-as"));
+    file.append(Some("Quit"), Some("app.quit"));
+    menu.append_section(Some("List"), &file);
+
+    let item = gio::Menu::new();
+    item.append(Some("Archive done"), Some("app.archive-done"));
+    item.append(Some("Duplicate"), Some("app.duplicate"));
+    item.append(Some("Group"), Some("app.group"));
+    item.append(Some("Delete items"), Some("app.delete-items"));
+    item.append(Some("Select branch"), Some("app.select-branch"));
+    let format = gio::Menu::new();
+    format.append(Some("Project"), Some("app.format-project"));
+    format.append(Some("Task"), Some("app.format-task"));
+    format.append(Some("Note"), Some("app.format-note"));
+    item.append_submenu(Some("Format as"), &format);
+    menu.append_section(Some("Item"), &item);
+
+    let outline = gio::Menu::new();
+    outline.append(Some("Focus in"), Some("app.focus-in"));
+    outline.append(Some("Focus out"), Some("app.focus-out"));
+    outline.append(Some("Go home"), Some("app.go-home"));
+    let folds = gio::Menu::new();
+    folds.append(Some("Expand items"), Some("app.expand-items"));
+    folds.append(
+        Some("Expand items completely"),
+        Some("app.expand-completely"),
+    );
+    folds.append(Some("Collapse items"), Some("app.collapse-items"));
+    folds.append(
+        Some("Collapse items completely"),
+        Some("app.collapse-completely"),
+    );
+    folds.append(Some("Expand all by level"), Some("app.expand-level"));
+    folds.append(Some("Collapse all by level"), Some("app.collapse-level"));
+    folds.append(
+        Some("Expand all completely"),
+        Some("app.expand-all-completely"),
+    );
+    folds.append(
+        Some("Collapse all completely"),
+        Some("app.collapse-all-completely"),
+    );
+    outline.append_submenu(Some("Folds"), &folds);
+    menu.append_section(Some("Outline"), &outline);
+
+    let view = gio::Menu::new();
+    view.append(Some("Search"), Some("app.start-search"));
+    menu.append_section(Some("Search"), &view);
+
+    menu
 }

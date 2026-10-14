@@ -12,12 +12,14 @@ The design contract lives in [spec.md](spec.md); the work plan in
 
 ## Status
 
-0.3.0: the folding filter editor. The full format, search, and
-date engine; a folding editor with continuous autosave and
-external-change reload; live filtering with the full query
-language; a sidebar of projects, saved searches, and tags; and
-Archive Done. The 1.0 gate is 1:1 parity with the TaskPaper
-editing core; the remaining work is sequenced in the roadmap.
+v1.0.0: the faithful editor. The full format, search, and date
+engine; a folding editor with the complete fold-command cluster,
+structural editing (moves, Delete Items, Select Branch, Format
+As), and focus; live filtering with the full query language; a
+sidebar of projects, saved searches, and tags; tag completion in
+the editor and the searchbar; Archive Done; and the command
+surface in a headerbar menu. The post-1.0 candidates (command
+palette, stylesheets, a CLI) are sequenced in the roadmap.
 
 ## Installing
 

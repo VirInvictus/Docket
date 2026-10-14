@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 const SEARCHES_SEED: &str = "Saved searches for Docket. Edit freely; changes apply on rebuild.\nSearches:\n\tToday @search(@today union @due <[d] tomorrow)\n\tNot Done @search(not @done except @done//*)\n";
 const TAGS_SEED: &str = "Tag sidebar configuration for Docket. Include tags appear even when unused; exclude tags never appear.\nInclude Tags: @due @start @today @done\nExclude Tags: @search\n";
+const PREFERENCES_SEED: &str =
+    "Settings for Docket. Edit freely; changes apply on the next action.\nDone stamp: @off\n";
 
 pub fn config_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
@@ -39,6 +41,32 @@ pub fn searches() -> Vec<(String, String)> {
         .into_iter()
         .map(|r| (r.label, r.query))
         .collect()
+}
+
+/// Whether done toggles stamp the completion date. The seeded
+/// preference is off, per the spec's default.
+pub fn stamp_done() -> bool {
+    let Some(dir) = config_dir() else {
+        return false;
+    };
+    let path = dir.join("preferences.taskpaper");
+    seed(&path, PREFERENCES_SEED);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return false;
+    };
+    text.split('\n')
+        .find(|l| {
+            l.trim_start_matches('\t')
+                .trim_end()
+                .starts_with("Done stamp:")
+        })
+        .and_then(|l| {
+            docket_core::tags::scan(l)
+                .into_iter()
+                .find(|t| t.name == "on")
+                .map(|_| true)
+        })
+        .unwrap_or(false)
 }
 
 /// (include, exclude) tag-name lists from the tags config.

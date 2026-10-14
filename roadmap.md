@@ -187,17 +187,17 @@ structural editing set, and a discoverable command surface. In-text
 find and link recognition stay out (the filter searchbar is the
 search surface; Ctrl+F stays reserved).
 
-- [ ] Fold keyboard cluster: expand/collapse with the Completely
+- [x] Fold keyboard cluster: expand/collapse with the Completely
       and By Level variants (the spec's fold commands)
-- [ ] Settings model and the completion-date stamp preference
-- [ ] Tag completion in the editor (the searchbar half shipped)
-- [ ] Tag click filtering in the editor text
-- [ ] Structural editing: item-only moves, Delete Items, Select
+- [x] Settings model and the completion-date stamp preference
+- [x] Tag completion in the editor (the searchbar half shipped)
+- [x] Tag click filtering in the editor text
+- [x] Structural editing: item-only moves, Delete Items, Select
       Branch, Format As type conversion
-- [ ] Focus keys: Focus In/Out (Ctrl+Alt+Left/Right) and Go Home
+- [x] Focus keys: Focus In/Out (Ctrl+Alt+Left/Right) and Go Home
       (Ctrl+Shift+H)
-- [ ] New-list action and a menu surface for the command set
-- [ ] 1.0 pass: spec-compliance review, patchnotes, tagged release
+- [x] New-list action and a menu surface for the command set
+- [x] 1.0 pass: spec-compliance review, patchnotes, tagged release
 
 ## Phase 10 and later (post-1.0 candidates, unsequenced)
 

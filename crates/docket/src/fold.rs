@@ -66,6 +66,20 @@ impl FoldEngine {
         self.folded.borrow().iter().copied().collect()
     }
 
+    /// Fold the given header lines' content hashes (the keyboard
+    /// fold commands).
+    pub fn fold_lines(&self, hashes: &[u64]) {
+        self.folded.borrow_mut().extend(hashes.iter().copied());
+    }
+
+    /// Unfold the given header lines' content hashes.
+    pub fn unfold_lines(&self, hashes: &[u64]) {
+        let mut set = self.folded.borrow_mut();
+        for h in hashes {
+            set.remove(h);
+        }
+    }
+
     pub fn restore(&self, hashes: &[u64]) {
         *self.folded.borrow_mut() = hashes.iter().copied().collect();
     }

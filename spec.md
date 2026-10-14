@@ -283,6 +283,21 @@ dates, so `@due < tomorrow` behaves as a date comparison.
   `~/.config/docket/searches.taskpaper`. Seeded defaults: Today
   (`@today union @due <[d] tomorrow`) and Not Done (`not @done
   except @done//*`).
+- Focus: a sidebar project click or Focus In hides everything
+  outside the focused project; Focus Out pops to the parent
+  project; Go Home returns to the whole outline. Searches evaluate
+  within the focus.
+- Structural commands: item-only moves (Move Branch carries whole
+  subtrees), Delete Items (a collapsed row's hidden descendants go
+  with it; visible children stay and re-parent), Select Branch, and
+  Format As converting rows to projects, tasks, or notes per the
+  reference transformations (the trailing tag run survives at the
+  end).
+- The fold commands: Expand and Collapse Items with their
+  Completely variants and the All By Level pair, keyed to the
+  reference cluster.
+- A headerbar menu carries the command surface with accelerators;
+  New list opens a fresh window.
 - Sidebar: Home, the document's projects (nested), searches, and
   tags with their distinct values as children; an
   include/exclude configuration controls which tags list.
