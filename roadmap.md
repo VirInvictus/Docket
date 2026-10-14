@@ -1,8 +1,9 @@
 # Roadmap
 
-Phase 0 is done. The 1.0 gate is the end of Phase 8: the faithful
-editor. Phases after that are post-1.0 candidates; they may be
-re-ordered or dropped. The spec outranks this file.
+Phase 0 is done. The 1.0 gate is the end of Phase 9: the parity
+core, 1:1 with the TaskPaper editing surface. Phases after that
+are post-1.0 candidates; they may be re-ordered or dropped. The
+spec outranks this file.
 
 ## Phase 0: skeleton (done)
 
@@ -116,7 +117,7 @@ fixture, query, and expected item ids as data.
       task-cluster keymap moves to Phase 6 with the commands it
       binds
 - [x] VERSION 0.2.0 with the release notes for the first packaged
-      release (tag pending)
+      release
 
 ## Phase 6: outline behavior
 
