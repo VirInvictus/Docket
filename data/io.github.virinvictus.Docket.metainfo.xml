@@ -36,6 +36,17 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.1.0" date="2026-11-13">
+      <description>
+        <p>The start page: the welcome document becomes a working
+        task list that demos the whole app in one screen, generated
+        with live dates so the seeded Today search returns real rows
+        on first open. The document's embedded Searches rows reach
+        the sidebar beside the config searches, and templates arrive
+        as bundled files with a New-from-template action and menu
+        section spawning fresh windows.</p>
+      </description>
+    </release>
     <release version="1.0.0" date="2026-10-13">
       <description>
         <p>The parity core. The fold command cluster (Expand and

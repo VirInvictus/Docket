@@ -2,6 +2,28 @@
 
 Newest first.
 
+## v1.1.0 (2026-11-13)
+
+- The start page: the welcome document stops being four lines of
+  instructions and becomes a working task list that demos the whole
+  app in one screen, generated with live dates so the seeded Today
+  search returns real rows the moment the app opens: a Start-here
+  checklist teaching by doing, a one-screen format tour whose done
+  line strikes itself through, an embedded Searches project with
+  live queries, and a small dated project exercising priorities,
+  contexts, and the archive.
+- The document's embedded Searches rows reach the sidebar (the
+  spec's either/or, finally wired): config searches come first,
+  document searches join them by label. The tests pin the start
+  page as valid idempotent TaskPaper, assert every embedded search
+  parses, and prove the Today search hits.
+- New from template mirrors the Quire pattern: a TEMPLATES registry
+  of bundled files with headless tests (Project plan, This week,
+  Packing list), a parameterized app.template action, and a menu
+  section; the action spawns docket --template <name> into a fresh
+  untitled window, per the one-window-per-document rule. The README
+  now leads with the start-page screenshot.
+
 ## v1.0.0 (2026-10-13)
 
 - The fold command cluster: Expand and Collapse Items with their
