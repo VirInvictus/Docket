@@ -28,6 +28,13 @@ jobs:
     # against the toolchain it shipped with, and 44 is the committer's
     # own Fedora.
     container: fedora:44
+    # The rolling 44 image's rustup refuses to run when $HOME differs from
+    # the euid-obtained home; Actions sets HOME=/github/home in containers
+    # while the container user is root. Pin HOME=/root to satisfy the guard
+    # without weakening the image pin. (2026-11-13: the drift killed the
+    # v1.1.0 release build.)
+    env:
+      HOME: /root
     # Cold first run: no cache on a fresh tag, dnf + clippy + test
     # + a from-scratch release build.
     timeout-minutes: 45
