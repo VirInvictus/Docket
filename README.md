@@ -16,7 +16,8 @@ The design contract lives in [spec.md](spec.md); the work plan in
 
 ## Status
 
-v1.1.1: the faithful editor, hardened by an issue-triage pass. The
+v1.1.2: the faithful editor, hardened by two issue-triage passes.
+The
 full format, search, and date engine; a folding editor with the
 complete fold-command cluster, structural editing (moves, Delete
 Items, Select Branch, Format As), and focus; live filtering with

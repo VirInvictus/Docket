@@ -36,6 +36,15 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.1.2" date="2026-11-16">
+      <description>
+        <p>The query engine's item-path semantics match the spec's
+        pinned reading: step slices bind per context node (each
+        project's first match, not one overall), over-indented lines
+        are children of their parenting item on both axes, and
+        top-level items are siblings under the document root.</p>
+      </description>
+    </release>
     <release version="1.1.1" date="2026-11-16">
       <description>
         <p>The issue-triage repair pass. Folding no longer panics on

@@ -2,6 +2,22 @@
 
 Newest first.
 
+## v1.1.2 (2026-11-16)
+
+- The query engine's item-path semantics now match the spec's own
+  pinned reading, three defects deep in the evaluator: step slices
+  bind per context node, so `project/task[0]` yields each project's
+  first task instead of one task overall (the spec's own example,
+  `project *//not @done[0]`, behaves as written); an over-indented
+  line is a child of its nearest shallower item on both the parent
+  and child axes, which previously disagreed; and top-level items
+  are siblings under the document root, so `following-sibling` and
+  `preceding-sibling` stop coming up empty at the outline's top.
+  Ancestor chains stay in document order, so slices on
+  `ancestor::` and `ancestor-or-self::` keep naming the outermost
+  step first. The whole existing case table passes unchanged; the
+  new readings are pinned by four new tests.
+
 ## v1.1.1 (2026-11-16)
 
 - The issue-triage repair pass: seven traced defects; the four

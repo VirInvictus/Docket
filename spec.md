@@ -189,12 +189,16 @@ parent axis; there is no `///` token (it parses as `//` then `/`).
 A leading `/` anchors the path at the document root (absolute);
 `*` is the wildcard, and the full axis names (`ancestor::`,
 `following-sibling::`, and the rest) are supported. A relative
-path's first step defaults to the descendant axis. Results are in
+path's first step defaults to the descendant axis. The child and
+sibling axes follow the document model's parenting rule, so an
+over-indented line is the child of its nearest shallower item, and
+top-level items are siblings under the document root. Results are in
 document order and deduplicated. Set operations combine path
 results: `(project Inbox//* union //@today) except //@done`. Slices
 are zero-based with exclusive ends, negative indices counting from
-the end, and out-of-range values clamping: `project *//not
-@done[0]` yields each project's first open item.
+the end, and out-of-range values clamping, binding per context
+node: `project *//not @done[0]` yields each project's first open
+item.
 
 **Failure semantics.** Missing or unparseable values make a
 comparison false, never an error. A query that fails to parse
