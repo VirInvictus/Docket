@@ -110,31 +110,57 @@ fn eval_steps(
         } else {
             Axis::Child
         });
-        let mut selected = match &cur {
-            Sel::Root => apply_axis(axis, Sel::Root, doc),
-            Sel::Items(items) => {
-                let mut all = Vec::new();
-                for &i in items {
-                    all.extend(apply_axis(axis, Sel::Items(vec![i]), doc));
+        let selected = match &cur {
+            Sel::Root => {
+                // Root is one context node, so the step's filters and
+                // slice apply plainly.
+                let mut one = apply_axis(axis, Sel::Root, doc);
+                one.retain(|&idx| step_allows(step, idx, doc, now));
+                if let Some(slice) = &step.slice {
+                    one = apply_slice(one, slice);
                 }
-                all.sort_unstable();
-                all.dedup();
-                all
+                one
+            }
+            Sel::Items(items) => {
+                // A step selects per context node: the axis, the
+                // filters, and the slice all bind to each node
+                // before the results combine, so `project/task[0]`
+                // takes each project's first task rather than one
+                // task overall (the spec's slicing rule).
+                let mut combined = Vec::new();
+                for &i in items {
+                    let mut one = apply_axis(axis, Sel::Items(vec![i]), doc);
+                    one.retain(|&idx| step_allows(step, idx, doc, now));
+                    if let Some(slice) = &step.slice {
+                        one = apply_slice(one, slice);
+                    }
+                    combined.extend(one);
+                }
+                combined.sort_unstable();
+                combined.dedup();
+                combined
             }
         };
-        if let Some(ty) = step.ty {
-            selected.retain(|&i| doc.items[i].kind() == ty);
-        }
-        if let Some(pred) = &step.pred {
-            selected.retain(|&i| eval_pred(pred, i, doc, now));
-        }
-        if let Some(slice) = &step.slice {
-            selected = apply_slice(selected, slice);
-        }
         cur = Sel::Items(selected.clone());
         result = Some(selected);
     }
     result.unwrap_or_default()
+}
+
+/// Whether a step's type and predicate admit item `idx` (the slice
+/// is positional, so it applies after, not here).
+fn step_allows(step: &crate::query::Step, idx: usize, doc: &Document, now: i64) -> bool {
+    if let Some(ty) = step.ty
+        && doc.items[idx].kind() != ty
+    {
+        return false;
+    }
+    if let Some(pred) = &step.pred
+        && !eval_pred(pred, idx, doc, now)
+    {
+        return false;
+    }
+    true
 }
 
 fn apply_axis(axis: Axis, sel: Sel, doc: &Document) -> Vec<usize> {
@@ -165,25 +191,30 @@ fn apply_axis(axis: Axis, sel: Sel, doc: &Document) -> Vec<usize> {
         (Axis::Ancestor, Sel::Items(items)) => items
             .into_iter()
             .flat_map(|i| {
-                let mut out = Vec::new();
+                // Root-first (document order), so a step slice
+                // indexes the chain the way the old sorted results
+                // did: [0] is the outermost ancestor.
+                let mut chain = Vec::new();
                 let mut cur = doc.parent_of(i);
                 while let Some(a) = cur {
-                    out.push(a);
+                    chain.push(a);
                     cur = doc.parent_of(a);
                 }
-                out
+                chain.reverse();
+                chain
             })
             .collect(),
         (Axis::AncestorOrSelf, Sel::Items(items)) => items
             .into_iter()
             .flat_map(|i| {
-                let mut out = vec![i];
+                let mut chain = vec![i];
                 let mut cur = doc.parent_of(i);
                 while let Some(a) = cur {
-                    out.push(a);
+                    chain.push(a);
                     cur = doc.parent_of(a);
                 }
-                out
+                chain.reverse();
+                chain
             })
             .collect(),
         (Axis::Following, Sel::Items(items)) => items
@@ -214,14 +245,31 @@ fn apply_axis(axis: Axis, sel: Sel, doc: &Document) -> Vec<usize> {
         (Axis::FollowingSibling, Sel::Items(items)) => items
             .into_iter()
             .flat_map(|i| match doc.parent_of(i) {
-                Some(p) => children(doc, p).into_iter().filter(|&c| c > i).collect(),
+                Some(p) => children(doc, p)
+                    .into_iter()
+                    .filter(|&c| c > i)
+                    .collect::<Vec<_>>(),
+                // A top-level item's parent is the document root:
+                // its siblings are the other top-level items, the
+                // same set the child axis yields from Root. An item
+                // deeper than top level with no parent (a document
+                // opening indented) has no siblings at all.
+                None if doc.items[i].depth == 0 => (0..doc.items.len())
+                    .filter(|&j| doc.items[j].depth == 0 && j > i)
+                    .collect(),
                 None => Vec::new(),
             })
             .collect(),
         (Axis::PrecedingSibling, Sel::Items(items)) => items
             .into_iter()
             .flat_map(|i| match doc.parent_of(i) {
-                Some(p) => children(doc, p).into_iter().filter(|&c| c < i).collect(),
+                Some(p) => children(doc, p)
+                    .into_iter()
+                    .filter(|&c| c < i)
+                    .collect::<Vec<_>>(),
+                None if doc.items[i].depth == 0 => (0..doc.items.len())
+                    .filter(|&j| doc.items[j].depth == 0 && j < i)
+                    .collect(),
                 None => Vec::new(),
             })
             .collect(),
@@ -241,23 +289,19 @@ fn subtree(doc: &Document, i: usize) -> Vec<usize> {
     out
 }
 
-/// Direct children of item `i`.
+/// Direct children of item `i`: the subtree members whose nearest
+/// shallower item is `i` itself, so an over-indented line (its depth
+/// skips a level) still counts as the child of its parenting item,
+/// mirroring `parent_of`.
 fn children(doc: &Document, i: usize) -> Vec<usize> {
     let depth = doc.items[i].depth;
-    let target = depth + 1;
     let mut out = Vec::new();
-    let mut j = i + 1;
-    while j < doc.items.len() {
-        let d = doc.items[j].depth;
-        if d <= depth {
+    for j in i + 1..doc.items.len() {
+        if doc.items[j].depth <= depth {
             break;
         }
-        if d == target {
+        if doc.parent_of(j) == Some(i) {
             out.push(j);
-            // Skip the child's whole subtree before seeking the next.
-            j = subtree(doc, j).last().map_or(j + 1, |&last| last + 1);
-        } else {
-            j += 1;
         }
     }
     out
@@ -688,5 +732,59 @@ mod tests {
             Query::parse("//*").unwrap().run_scoped_at(&d, Some(0), 0),
             (0..4).collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn slices_bind_per_context_node() {
+        // items: 0 P, 1 a, 2 a2, 3 b, 4 Q, 5 c, 6 d
+        let d = doc("P:\n\t- a\n\t\t- a2\n\t- b\nQ:\n\t- c\n\t- d\n");
+        // Each project's first task, not one task overall.
+        assert_eq!(run("project/task[0]", &d), vec![1, 5]);
+        // Negative indices count within each node too.
+        assert_eq!(run("project/task[-1]", &d), vec![3, 6]);
+        // The spec's own example shape: each project's first open
+        // item, the project itself included.
+        let d = doc("P:\n\t- x @done\n\t- y\nQ:\n\t- z @done\n");
+        assert_eq!(run("project *//not @done[0]", &d), vec![0, 3]);
+    }
+
+    #[test]
+    fn over_indented_lines_are_children_of_their_parenting_item() {
+        // items: 0 A, 1 child, 2 deep (three tabs), 3 sibling
+        let d = doc("A:\n\t- child\n\t\t\t- deep\n\t- sibling\n");
+        assert_eq!(run("A/child::*", &d), vec![1, 3]);
+        // parent_of says deep's parent is child; the child axis now
+        // agrees in both directions.
+        assert_eq!(run("child/child::*", &d), vec![2]);
+        assert_eq!(run("deep/parent::*", &d), vec![1]);
+        // child's siblings are A's children after it.
+        assert_eq!(run("child/following-sibling::*", &d), vec![3]);
+    }
+
+    #[test]
+    fn top_level_items_are_siblings_under_the_document_root() {
+        // items: 0 Zed, 1 one, 2 Yak, 3 two, 4 plain note
+        let d = doc("Zed:\n\t- one\nYak:\n\t- two\n- plain note\n");
+        assert_eq!(run("Zed/following-sibling::*", &d), vec![2, 4]);
+        assert_eq!(run("Yak/preceding-sibling::*", &d), vec![0]);
+        assert_eq!(run("Zed/preceding-sibling::*", &d), Vec::<usize>::new());
+        assert_eq!(run("plain/following-sibling::*", &d), Vec::<usize>::new());
+        // A document opening indented: its first item has no parent
+        // and is not a root child, so it has no siblings at all.
+        let d = doc("\t- a\n- b\n");
+        assert_eq!(run("task/following-sibling::*", &d), Vec::<usize>::new());
+    }
+
+    #[test]
+    fn ancestor_slices_index_root_first() {
+        // items: 0 A, 1 B, 2 x
+        let d = doc("A:\n\tB:\n\t\t- x\n");
+        // The chains run document order: [0] is the outermost
+        // ancestor, [-1] the nearest (or the item itself).
+        assert_eq!(run("x/ancestor::*[0]", &d), vec![0]);
+        assert_eq!(run("x/ancestor::*[-1]", &d), vec![1]);
+        assert_eq!(run("x/ancestor-or-self::*[0]", &d), vec![0]);
+        assert_eq!(run("x/ancestor-or-self::*[-1]", &d), vec![2]);
+        assert_eq!(run("x/ancestor-or-self::*", &d), vec![0, 1, 2]);
     }
 }
