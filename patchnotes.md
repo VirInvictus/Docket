@@ -2,6 +2,40 @@
 
 Newest first.
 
+## v1.1.1 (2026-11-16)
+
+- The issue-triage repair pass: seven traced defects; the four
+  engine-level ones are pinned by new tests, and the editor's three
+  were fixed at the exact lines the traces named (the app crate
+  carries smoke tests only). Folding no longer panics on multibyte
+  content (the fold depth mixed a character count with a UTF-8 byte
+  length and underflowed on any accented or CJK line). Expand Items
+  expands instead of collapsing (its polarity was hardcoded to
+  collapse). Focus In zooms to the focused subtree again: the focus
+  query was an absolute path, which the scope contract makes ignore
+  the focus, so the whole document stayed visible.
+- Line-block edits keep documents well-formed at the file's edges:
+  moving a block to the end of a file without a trailing newline
+  (the canonical form) no longer glues it onto the last line,
+  duplicating the final line no longer appends a second copy on the
+  same line, and a move out of the last row separates cleanly in
+  both directions. Every move preserves the source's trailing
+  newline state.
+- Selections ending at column zero (Shift+Down, a drag to the next
+  line's start) no longer pull that unselected line into block
+  commands: indent, delete, done, move, and the fold commands act
+  on exactly the lines selected.
+- The sidebar keeps nested projects whose siblings include tasks:
+  the ancestor walk compared every shallower line against the
+  original depth, so an uncle item parked between a parent project
+  and a sub-project dropped the sub-project from the list. Blank
+  separator lines no longer break the ancestor chain either; they
+  adopt the next non-empty line's depth, the document model's own
+  rule.
+- Historical dates before a zone's first recorded transition
+  resolve to the pre-transition standard offset instead of the most
+  recent transition's offset.
+
 ## v1.1.0 (2026-11-13)
 
 - The start page: the welcome document stops being four lines of

@@ -298,7 +298,9 @@ dates, so `@due < tomorrow` behaves as a date comparison.
   reference cluster.
 - A headerbar menu carries the command surface with accelerators;
   New list opens a fresh window.
-- Sidebar: Home, the document's projects (nested), searches, and
+- Sidebar: Home, the document's projects (nested; a project lists
+  only when its entire ancestor chain is projects, and blank
+  separator lines never break that chain), searches, and
   tags with their distinct values as children; an
   include/exclude configuration controls which tags list.
 - Enter continues the list: after a task line it opens a new task;

@@ -16,14 +16,16 @@ The design contract lives in [spec.md](spec.md); the work plan in
 
 ## Status
 
-v1.0.0: the faithful editor. The full format, search, and date
-engine; a folding editor with the complete fold-command cluster,
-structural editing (moves, Delete Items, Select Branch, Format
-As), and focus; live filtering with the full query language; a
-sidebar of projects, saved searches, and tags; tag completion in
-the editor and the searchbar; Archive Done; and the command
-surface in a headerbar menu. The post-1.0 candidates (command
-palette, stylesheets, a CLI) are sequenced in the roadmap.
+v1.1.1: the faithful editor, hardened by an issue-triage pass. The
+full format, search, and date engine; a folding editor with the
+complete fold-command cluster, structural editing (moves, Delete
+Items, Select Branch, Format As), and focus; live filtering with
+the full query language; a sidebar of projects, saved searches,
+and tags; tag completion in the editor and the searchbar; Archive
+Done; the command surface in a headerbar menu; a working start
+page with embedded searches; and new-from-template. The post-1.0
+candidates (command palette, stylesheets, a CLI) are sequenced in
+the roadmap.
 
 ## Installing
 

@@ -36,6 +36,18 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="1.1.1" date="2026-11-16">
+      <description>
+        <p>The issue-triage repair pass. Folding no longer panics on
+        multibyte content, Expand Items expands, Focus In scopes to
+        the focused subtree, column-zero selections stop pulling the
+        next line into block commands, line-block moves and
+        duplicates keep the document well-formed at the file's
+        edges, the sidebar keeps nested projects whose siblings
+        include tasks, and historical dates before a zone's first
+        transition use the pre-transition offset.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-11-13">
       <description>
         <p>The start page: the welcome document becomes a working
