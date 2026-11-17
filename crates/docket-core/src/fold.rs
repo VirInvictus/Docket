@@ -162,14 +162,23 @@ mod tests {
 #[cfg(test)]
 mod path_tests {
     #[test]
-    fn a_bare_path_query_matches_everything() {
+    fn the_bare_relative_path_is_the_focus_match_all() {
         // The focus visibility runs a match-all query scoped to the
-        // focused project; the bare descendant-or-self path is it.
+        // focused project. Scoped, the bare relative path `*` anchors
+        // at the focus as descendant-or-self: exactly the focused
+        // subtree. The absolute `//*` matches everything everywhere
+        // by contract, which is why focus mode must not use it.
         use crate::{Document, Query};
         let doc = Document::load("Home:\n\t- a\n\t\t- b\nElse:\n\t- c\n");
-        let q = Query::parse("//").expect("// parses");
+        let q = Query::parse("*").expect("* parses");
         assert_eq!(q.run(&doc), vec![0, 1, 2, 3, 4]);
-        let q2 = Query::parse("//*").expect("//* parses");
-        assert_eq!(q2.run(&doc), vec![0, 1, 2, 3, 4]);
+        assert_eq!(q.run_scoped_at(&doc, Some(0), 0), vec![0, 1, 2]);
+        assert_eq!(q.run_scoped_at(&doc, Some(3), 0), vec![3, 4]);
+        assert_eq!(
+            Query::parse("//*")
+                .expect("//* parses")
+                .run_scoped_at(&doc, Some(0), 0),
+            vec![0, 1, 2, 3, 4]
+        );
     }
 }

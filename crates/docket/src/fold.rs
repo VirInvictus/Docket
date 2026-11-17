@@ -26,6 +26,12 @@ pub fn content_hash(text: &str) -> u64 {
     hash
 }
 
+/// The line's indentation depth in tabs. Counted as tabs, never as a
+/// char-count minus a byte-length: multibyte content would underflow.
+fn depth_of(line: &str) -> usize {
+    line.chars().take_while(|&c| c == '\t').count()
+}
+
 pub fn hash_hex(hash: u64) -> String {
     format!("{hash:016x}")
 }
@@ -98,18 +104,17 @@ impl FoldEngine {
         while line + 1 < doc_lines.len() {
             let line_text = doc_lines[line];
             let content = line_text.trim_start_matches('\t');
-            let depth = line_text.chars().count() - content.len();
+            let depth = depth_of(line_text);
             if !content.is_empty() {
                 let next = doc_lines[line + 1];
-                let next_depth = next.chars().count() - next.trim_start_matches('\t').len();
+                let next_depth = depth_of(next);
                 if next_depth > depth {
                     let hash = content_hash(content);
                     if self.is_folded_hash(hash) {
                         let mut last = line;
                         let mut probe = line + 1;
                         while probe < doc_lines.len() {
-                            let p = doc_lines[probe];
-                            let d = p.chars().count() - p.trim_start_matches('\t').len();
+                            let d = depth_of(doc_lines[probe]);
                             if d <= depth {
                                 break;
                             }

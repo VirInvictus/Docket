@@ -761,10 +761,13 @@ fn cmd_fold(doc: &Rc<Doc>, cmd: FoldCmd) {
                 .into_iter()
                 .filter(|&l| is_foldable(l))
                 .collect();
+            // The polarity follows the command: Expand unfolds, and
+            // only Collapse parks the caret on the leaf fallback.
+            let is_collapse = matches!(cmd, FoldCmd::CollapseItems);
             let (collapse, park) = match owners.first() {
-                Some(_) => (true, false),
+                Some(_) => (is_collapse, false),
                 None => match nearest_foldable_ancestor(&text, a) {
-                    Some(_) => (true, true),
+                    Some(_) => (is_collapse, is_collapse),
                     None => return,
                 },
             };
@@ -982,15 +985,23 @@ fn anchor_depth(doc: &Rc<Doc>, caret: usize) -> Option<i64> {
 }
 
 /// The first and last line of the selection (a caret selects its own
-/// line).
+/// line). A selection whose end sits at column zero spans no content
+/// of its end line, so that line is not selected: block commands
+/// must not claim it.
 fn selection_lines(doc: &Rc<Doc>) -> (usize, usize) {
-    let mut a = doc.buffer.iter_at_mark(&doc.buffer.get_insert()).line() as usize;
-    let mut b = doc
-        .buffer
-        .iter_at_mark(&doc.buffer.selection_bound())
-        .line() as usize;
-    if b < a {
-        std::mem::swap(&mut a, &mut b);
+    let (s, e) = doc.buffer.selection_bounds().unwrap_or_else(|| {
+        let ins = doc.buffer.get_insert();
+        (doc.buffer.iter_at_mark(&ins), doc.buffer.iter_at_mark(&ins))
+    });
+    let (start, end) = if s.offset() <= e.offset() {
+        (s, e)
+    } else {
+        (e, s)
+    };
+    let a = start.line() as usize;
+    let mut b = end.line() as usize;
+    if b > a && end.line_offset() == 0 {
+        b -= 1;
     }
     (a, b)
 }
@@ -1598,12 +1609,15 @@ fn apply_filter(doc: &Rc<Doc>) {
 
 /// Recompute visibility after a focus change without a searchbar
 /// filter: the focused subtree stays, everything else hides. With
-/// no focus the document shows whole.
+/// no focus the document shows whole. The match-all is the bare
+/// relative path `*`: scoped, it anchors at the focus as
+/// descendant-or-self. An absolute path (`//`) ignores the scope by
+/// contract and would light the whole document instead.
 fn apply_focus(doc: &Rc<Doc>) {
     let scope = focused_line(doc);
     match scope {
         None => refresh_folds(doc),
-        Some(_) => match docket_core::query::Query::parse("//") {
+        Some(_) => match docket_core::query::Query::parse("*") {
             Ok(all) => apply_query(doc, &all, scope),
             Err(_) => refresh_folds(doc),
         },

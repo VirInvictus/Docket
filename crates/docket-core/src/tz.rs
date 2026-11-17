@@ -134,7 +134,11 @@ fn offset_from_block(
     // First standard (non-DST) type is the pre-first-transition rule.
     let default_type = dst_flags.iter().position(|d| !d).unwrap_or(0);
     let chosen = match transitions.iter().position(|&t| t > at_utc) {
-        Some(0) | None => {
+        // Before the first recorded transition the pre-transition
+        // standard rule governs, not the most recent transition's.
+        Some(0) => default_type,
+        Some(first_after) => indices[first_after - 1] as usize,
+        None => {
             let last = transitions.len();
             if last == 0 {
                 default_type
@@ -142,14 +146,13 @@ fn offset_from_block(
                 indices[last - 1] as usize
             }
         }
-        Some(first_after) => indices[first_after - 1] as usize,
     };
     offsets.get(chosen).copied()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{local_offset_seconds, now_millis};
+    use super::{local_offset_seconds, now_millis, offset_from_block};
 
     #[test]
     fn the_local_zone_resolves_to_something_sane() {
@@ -173,5 +176,24 @@ mod tests {
         let local = now_millis();
         let delta = (local - utc).abs();
         assert!(delta <= 14 * 3600 * 1000, "delta {delta}");
+    }
+
+    #[test]
+    fn before_the_first_transition_the_first_standard_type_rules() {
+        // A synthetic v1 block: one transition at t=100 flipping to a
+        // DST type; type 0 is the pre-transition standard rule.
+        let mut block: Vec<u8> = Vec::new();
+        block.extend_from_slice(&100i32.to_be_bytes());
+        block.push(1); // the transition's type index
+        block.extend_from_slice(&[0, 0, 0, 0, 0, 0]); // type 0: std, offset 0
+        block.extend_from_slice(&[0, 0, 14, 16, 1, 0]); // type 1: dst, +3600
+        // A timestamp before the first transition resolves to the
+        // first standard type, never to the last transition's type.
+        assert_eq!(offset_from_block(&block, 1, 2, 0, 0, 0, 4, 50), Some(0));
+        // After it, the transition's own type governs.
+        assert_eq!(offset_from_block(&block, 1, 2, 0, 0, 0, 4, 150), Some(3600));
+        // No transitions at all: the first standard type again.
+        let types: Vec<u8> = block[5..].to_vec();
+        assert_eq!(offset_from_block(&types, 0, 2, 0, 0, 0, 4, 0), Some(0));
     }
 }

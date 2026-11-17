@@ -302,8 +302,10 @@ pub fn move_block(
         return None;
     }
     let mut parts: Vec<Vec<char>> = Vec::new();
+    let mut block_tail: Option<usize> = None;
     for i in 0..lines.line_count() {
         if i == insert_before {
+            block_tail = Some(parts.len() + (last_line - first_line));
             push_block(&mut parts, &lines, first_line, last_line);
         }
         if i < first_line || i > last_line {
@@ -313,9 +315,28 @@ pub fn move_block(
         }
     }
     if insert_before >= lines.line_count() {
+        // A canonical document ends without a newline, so the kept
+        // tail can end bare; the block needs one as its separator or
+        // the two glue into a single line.
+        if lines.chars.last() != Some(&'\n') {
+            parts.push(vec!['\n']);
+        }
         push_block(&mut parts, &lines, first_line, last_line);
+    } else if let Some(t) = block_tail
+        && parts[t].last() != Some(&'\n')
+    {
+        // The block landed mid-document and its last line was the
+        // document's bare final line; whatever now follows it needs
+        // the separator just as much.
+        parts[t].push('\n');
     }
-    Some(parts.into_iter().flatten().collect())
+    let mut out: String = parts.into_iter().flatten().collect();
+    // Adding a separator made a trailing newline redundant; the
+    // result keeps the source's trailing-newline state.
+    if lines.chars.last() != Some(&'\n') && out.ends_with('\n') {
+        out.pop();
+    }
+    Some(out)
 }
 
 fn push_block(parts: &mut Vec<Vec<char>>, lines: &Lines, first: usize, last: usize) {
@@ -410,7 +431,12 @@ pub fn duplicate_block(text: &str, first_line: usize, last_line: usize) -> Optio
     let (_, e_last) = lines.range(last_line);
     let insert_at = (e_last + 1).min(lines.chars.len());
     let (s, _) = lines.range(first_line);
-    let block: Vec<char> = lines.chars[s..insert_at].to_vec();
+    let mut block: Vec<char> = lines.chars[s..insert_at].to_vec();
+    if !block.is_empty() && block.last() != Some(&'\n') {
+        // The document's final line carries no newline; the copy
+        // needs one as its separator or the two glue into one line.
+        block.insert(0, '\n');
+    }
     lines.chars.splice(insert_at..insert_at, block);
     Some(lines.join())
 }
@@ -817,6 +843,20 @@ mod tests {
     }
 
     #[test]
+    fn duplicating_the_final_line_without_a_trailing_newline_stays_two_lines() {
+        assert_eq!(duplicate_block("- task", 0, 0).unwrap(), "- task\n- task");
+        assert_eq!(
+            duplicate_block("- a\n- b", 0, 1).unwrap(),
+            "- a\n- b\n- a\n- b"
+        );
+        // A trailing newline in the source survives in the copy.
+        assert_eq!(duplicate_block("- a\n", 0, 0).unwrap(), "- a\n- a\n");
+        // The artifact line behind a trailing newline duplicates as
+        // the no-op it always was: nothing to copy, nothing inserted.
+        assert_eq!(duplicate_block("Note\n", 1, 1).unwrap(), "Note\n");
+    }
+
+    #[test]
     fn group_inserts_parent_and_shifts() {
         let (text, parent_line) = group_lines(DOC, 1, 2).unwrap();
         assert_eq!(parent_line, 1);
@@ -840,6 +880,31 @@ mod tests {
         assert_eq!(r, "Project:\n\t- three\n\t- one\n\t- two @a\nNote line\n");
         let r = move_block(DOC, 1, 2, 5).unwrap();
         assert_eq!(r, "Project:\n\t- three\nNote line\n\t- one\n\t- two @a\n");
+    }
+
+    #[test]
+    fn move_block_to_the_end_stays_line_separated() {
+        // A canonical document ends without a newline; moving a block
+        // after the last line must not glue the two together.
+        let out = move_block("- first\n- second", 0, 0, 2).unwrap();
+        assert_eq!(out, "- second\n- first");
+        // The source's trailing-newline state survives the move.
+        let out = move_block("- first\n- second\n", 0, 0, 3).unwrap();
+        assert_eq!(out, "- second\n- first\n");
+    }
+
+    #[test]
+    fn move_items_down_at_the_last_row_stays_well_formed() {
+        let out = move_items("- a\n- b", 0, 0, true).unwrap();
+        assert_eq!(out, "- b\n- a");
+    }
+
+    #[test]
+    fn move_block_up_with_a_bare_final_line_stays_line_separated() {
+        // The block's last line was the document's bare final line;
+        // whatever follows it in the new order needs the separator.
+        let out = move_block("- a\n- b", 1, 1, 0).unwrap();
+        assert_eq!(out, "- b\n- a");
     }
 
     #[test]

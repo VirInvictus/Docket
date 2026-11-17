@@ -56,16 +56,45 @@ pub struct ProjectRow {
     pub level: usize,
 }
 
+/// The line's indentation depth in tabs.
+fn depth(line: &str) -> usize {
+    line.chars().take_while(|&c| c == '\t').count()
+}
+
+/// Whether a line is blank (its body past the tabs is all
+/// whitespace), matching the document model's blank-line rule.
+fn is_blank(line: &str) -> bool {
+    line.trim_start_matches('\t')
+        .chars()
+        .all(char::is_whitespace)
+}
+
 /// The sidebar's project inventory: project-type items whose entire
 /// ancestor chain is projects, nested by depth. A project nested
 /// under a task or note is not listed.
 pub fn project_rows(text: &str) -> Vec<ProjectRow> {
     use crate::item::ItemKind;
     let lines: Vec<&str> = text.split('\n').collect();
+    // Effective depths: a blank line adopts the next non-empty line's
+    // depth (the document model's rule), so a separator between a
+    // parent and its child is a sibling, not a broken ancestor chain.
+    // Trailing blanks sit at top level.
+    let depths: Vec<usize> = (0..lines.len())
+        .map(|i| {
+            if is_blank(lines[i]) {
+                lines[i + 1..]
+                    .iter()
+                    .find(|l| !is_blank(l))
+                    .map_or(0, |l| depth(l))
+            } else {
+                depth(lines[i])
+            }
+        })
+        .collect();
     let mut out = Vec::new();
     let mut stack: Vec<usize> = Vec::new(); // levels of listed projects
     for (i, line) in lines.iter().enumerate() {
-        let depth = line.chars().take_while(|&c| c == '\t').count();
+        let depth = depths[i];
         let content = line.trim_start_matches('\t');
         let is_project = crate::classify::kind(content) == ItemKind::Project;
         if !is_project {
@@ -75,18 +104,23 @@ pub fn project_rows(text: &str) -> Vec<ProjectRow> {
             stack.retain(|&d| d < depth);
             continue;
         }
-        // Ancestors must all be projects: every shallower line above
-        // with depth < this one's must itself be a project.
+        // Ancestors must all be projects: climb the true ancestor
+        // chain, checking only the strictly shallower steps and
+        // tracking how far up the chain has climbed, so a sibling
+        // item parked at an intermediate depth (an uncle) is never
+        // mistaken for an ancestor.
         let mut ancestors_all_projects = true;
+        let mut cur_depth = depth;
         for prev in (0..i).rev() {
-            let pd = lines[prev].chars().take_while(|&c| c == '\t').count();
-            if pd < depth {
-                let pcontent = lines[prev].trim_start_matches('\t');
-                if crate::classify::kind(pcontent) != ItemKind::Project {
+            let pd = depths[prev];
+            if pd < cur_depth {
+                if crate::classify::kind(lines[prev].trim_start_matches('\t')) != ItemKind::Project
+                {
                     ancestors_all_projects = false;
                     break;
                 }
-                if pd == 0 {
+                cur_depth = pd;
+                if cur_depth == 0 {
                     break;
                 }
             }
@@ -255,6 +289,33 @@ mod tests {
         let text = "- a task:\n\tNested:\n\t\t- x\n";
         // "Nested" is a project but its ancestor is a task: not listed.
         assert!(project_rows(text).is_empty());
+    }
+
+    #[test]
+    fn project_rows_survive_sibling_items_at_intermediate_depths() {
+        let text =
+            "Work:\n\t- buy supplies\n\tProject Phoenix:\n\t\tSubproject Alpha:\n\t\t\t- x\n";
+        let rows = project_rows(text);
+        // Alpha's ancestor chain is Phoenix and Work; the sibling
+        // task parked above Phoenix is an uncle, not an ancestor,
+        // and must not disqualify it.
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[2].name, "Subproject Alpha:");
+        assert_eq!(rows[2].level, 2);
+    }
+
+    #[test]
+    fn project_rows_climb_across_blank_separators() {
+        let text = "Home:\n\n\tErrands:\n\t\t- milk\n\n\tWork:\n";
+        let rows = project_rows(text);
+        // A blank line adopts the next non-empty line's depth, so it
+        // separates siblings instead of breaking the ancestor chain.
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].name, "Home:");
+        assert_eq!(rows[1].name, "Errands:");
+        assert_eq!(rows[1].level, 1);
+        assert_eq!(rows[2].name, "Work:");
+        assert_eq!(rows[2].level, 1);
     }
 
     #[test]
