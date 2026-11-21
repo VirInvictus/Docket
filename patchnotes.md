@@ -2,6 +2,15 @@
 
 Newest first.
 
+## v1.1.3 (2026-11-20)
+
+- vir-gtk lock moved 1.4.3 → 1.5.0 (`d37ef6e`): the shared base
+  sheet's checked/active default went quiet (upstream issue #1; state
+  display stops spending the accent). Docket restates no button state
+  rules and has no checked-toggle surfaces, so the only observable
+  delta is every button's press flash going from the dragonRed paint
+  to the quiet raised-tone lift. No code changes of Docket's own.
+
 ## v1.1.2 (2026-11-16)
 
 - The query engine's item-path semantics now match the spec's own
